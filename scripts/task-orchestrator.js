@@ -8,8 +8,21 @@ async function main() {
     return;
   }
 
+  const allDone = plan.queued_tasks.length === 0 && plan.active_tasks.length === 0;
   const nextTask = await pickNextRunnableTask();
   if (!nextTask) {
+    if (allDone) {
+      await updateState({
+        current_step: '主线任务已全部完成',
+        status: 'done',
+        last_error: null,
+        last_progress_at: new Date().toISOString(),
+      });
+      await appendEvent({ type: 'orchestrator_finished' });
+      process.stdout.write(JSON.stringify({ status: 'done', action: 'finished' }) + '\n');
+      return;
+    }
+
     await updateState({ status: 'stalled', last_error: '主线未完成且没有可运行任务' });
     await appendEvent({ type: 'orchestrator_stalled', reason: 'no runnable tasks' });
     process.stdout.write(JSON.stringify({ status: 'stalled', action: 'none' }) + '\n');

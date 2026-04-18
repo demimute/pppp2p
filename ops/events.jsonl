@@ -30,3 +30,15 @@
 {"ts":"2026-04-18T05:02:06.020Z","type":"step_progress","step":"完成 task-002 并续接 task-003","changed_files":["ops/plan.json","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"81ae0c4","build_ok":true}}
 {"ts":"2026-04-18T05:02:06.024Z","type":"task_completed","task_id":"task-002","result":{"summary":"ComparePanel -> 移除 -> Undo 链路验证通过，stats/undo 两处 bug 已修复"}}
 {"ts":"2026-04-18T05:02:06.027Z","type":"task_complete_processed","task_id":"task-002","next_task":"task-003"}
+{"ts":"2026-04-18T05:27:33.793Z","type":"stall_detected","threshold_minutes":10}
+{"ts":"2026-04-18T05:27:33.797Z","type":"report_sent","threshold_minutes":10,"report_hash":"2fd910c9252a0f26ea5438358e393aeb171f6fdd"}
+{"ts":"2026-04-18T05:27:33.798Z","type":"watchdog_checked","threshold_minutes":10,"stalled":true,"report_sent":true,"force":false}
+{"ts":"2026-04-18T05:27:54.702Z","type":"watchdog_checked","threshold_minutes":10,"stalled":true,"report_sent":false,"force":false}
+{"ts":"2026-04-18T05:27:54.702Z","type":"step_progress","step":"修复任务完成写回链并登记 task-003 完成","changed_files":["scripts/task-lib.js","scripts/task-complete.js","scripts/progress-lib.js","scripts/progress-report.js","ops/plan.json","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"e04a0ea","build_ok":true}}
+{"ts":"2026-04-18T05:27:54.709Z","type":"task_completed","task_id":"task-003","result":{"summary":"phash / dual / intelligence UI 与后端返回一致，链路验证通过"},"repaired_from":"queued"}
+{"ts":"2026-04-18T05:27:54.710Z","type":"task_complete_processed","task_id":"task-003","next_task":"task-004"}
+{"ts":"2026-04-18T05:33:27.852Z","type":"step_progress","step":"拉起 task-004 并继续补自动续派闭环","changed_files":["ops/plan.json","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"e04a0ea","build_ok":true}}
+{"ts":"2026-04-18T05:45:12.943Z","type":"task_completed","task_id":"task-004","result":{"summary":"move / undo / history API 与前端交互一致，history undone 状态已补齐"},"repaired_from":"active"}
+{"ts":"2026-04-18T05:45:12.944Z","type":"task_complete_processed","task_id":"task-004","next_task":null}
+{"ts":"2026-04-18T05:47:20.209Z","type":"orchestrator_finished"}
+{"ts":"2026-04-18T05:47:20.209Z","type":"watchdog_finished"}

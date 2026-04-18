@@ -5,6 +5,19 @@ async function main() {
   const plan = await loadPlan();
   const hasActive = plan.active_tasks.length > 0;
   const hasQueued = plan.queued_tasks.length > 0;
+  const allDone = !hasActive && !hasQueued;
+
+  if (allDone) {
+    await updateState({
+      current_step: '主线任务已全部完成',
+      status: 'done',
+      last_error: null,
+      last_progress_at: new Date().toISOString(),
+    });
+    await appendEvent({ type: 'watchdog_finished' });
+    process.stdout.write(JSON.stringify({ status: 'done', completed: plan.completed_tasks.length }) + '\n');
+    return;
+  }
 
   if (!hasActive && hasQueued) {
     await updateState({

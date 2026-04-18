@@ -1,10 +1,10 @@
 {
   "current_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线联调并修复关键交互缺陷",
-  "current_step": "等待续派: 验证 phash/dual/intelligence UI 展示与后端返回一致",
-  "status": "running",
+  "current_step": "主线任务已全部完成",
+  "status": "done",
   "started_at": "2026-04-18T03:21:09.149Z",
-  "last_progress_at": "2026-04-18T05:02:06.025Z",
-  "last_report_at": "2026-04-18T02:59:04.502Z",
+  "last_progress_at": "2026-04-18T05:47:20.208Z",
+  "last_report_at": "2026-04-18T05:27:33.796Z",
   "last_error": null,
   "changed_files": [
     "ops/plan.json",
@@ -12,7 +12,8 @@
     "ops/events.jsonl"
   ],
   "evidence": {
-    "commit": "81ae0c4",
-    "build_ok": true
-  }
+    "completed_task": "task-004",
+    "result_summary": "move / undo / history API 与前端交互一致，history undone 状态已补齐"
+  },
+  "last_report_hash": "2fd910c9252a0f26ea5438358e393aeb171f6fdd"
 }

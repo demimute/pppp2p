@@ -42,3 +42,12 @@
 {"ts":"2026-04-18T05:45:12.944Z","type":"task_complete_processed","task_id":"task-004","next_task":null}
 {"ts":"2026-04-18T05:47:20.209Z","type":"orchestrator_finished"}
 {"ts":"2026-04-18T05:47:20.209Z","type":"watchdog_finished"}
+{"ts":"2026-04-18T05:52:49.710Z","type":"step_progress","step":"打包 DedupStudio 桌面应用","changed_files":["dist-electron","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T08:18:57.597Z","type":"step_progress","step":"尝试打包 Windows 版本","changed_files":["package.json","dist-electron","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T08:21:26.974Z","type":"step_progress","step":"尝试打包 Windows 绿色版","changed_files":["dist-electron","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T09:14:53.349Z","type":"step_progress","step":"修复新一轮 UI/交互 bug","changed_files":["src/App.jsx","src/components/HistoryPanel.jsx","src/components/GroupCard.jsx","src/components/ComparePanel.jsx","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T09:27:14.793Z","type":"step_progress","step":"全项目代码检查与回归测试","changed_files":["src","backend","electron","package.json","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T09:55:52.569Z","type":"step_progress","step":"准备搭建模拟用户操作测试","changed_files":["package.json","src","electron","backend","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T11:26:10.927Z","type":"step_progress","step":"扩展 E2E 覆盖到 compare/remove/undo","changed_files":["tests/e2e","src","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T11:28:26.912Z","type":"step_progress","step":"修复 ComparePanel 标记移除状态回显问题","changed_files":["src/App.jsx","tests/e2e/workflow.spec.js","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}
+{"ts":"2026-04-18T11:30:40.322Z","type":"step_progress","step":"继续修复 compare/remove/undo E2E 断点","changed_files":["src/App.jsx","src/components/ComparePanel.jsx","tests/e2e/workflow.spec.js","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7a0667d","build_ok":true}}

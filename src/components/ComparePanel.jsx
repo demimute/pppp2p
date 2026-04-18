@@ -39,6 +39,10 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
   const selectedImage = group.members[selectedIndex];
   const winnerImage = group.members.find(m => m.name === group.winner);
 
+  if (!selectedImage || !winnerImage) {
+    return null;
+  }
+
   const formatFileSize = (bytes) => {
     if (!bytes) return 'Unknown';
     if (bytes < 1024) return `${bytes} B`;
@@ -60,14 +64,16 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
     if (!currentSize || !winnerSize) return 'Unknown';
 
     const deltaBytes = Math.abs(currentSize - winnerSize);
-    const deltaKb = deltaBytes / 1024;
     const deltaPercent = winnerSize > 0 ? (deltaBytes / winnerSize) * 100 : 0;
 
-    if (deltaKb < 1) {
+    // Show bytes only for very small differences (< 1KB)
+    if (deltaBytes < 1024) {
       return `${deltaBytes} B`;
     }
 
-    return `${deltaKb.toFixed(1)} KB (${deltaPercent.toFixed(1)}%)`;
+    // For larger differences, show percentage (more meaningful for similarity comparison)
+    // Use a short label to avoid semantic confusion
+    return `${deltaPercent.toFixed(1)}%`;
   };
 
   return (
@@ -207,7 +213,8 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
             </button>
             <button
               onClick={() => onAction('remove')}
-              className="flex-1 btn btn-danger py-3 text-base"
+              disabled={selectedImage?.name === group.winner}
+              className="flex-1 btn btn-danger py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
               × 标记移除
             </button>

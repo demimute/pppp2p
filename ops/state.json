@@ -1,19 +1,21 @@
 {
   "current_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线联调并修复关键交互缺陷",
-  "current_step": "主线任务已全部完成",
-  "status": "done",
+  "current_step": "继续修复 compare/remove/undo E2E 断点",
+  "status": "running",
   "started_at": "2026-04-18T03:21:09.149Z",
-  "last_progress_at": "2026-04-18T05:47:20.208Z",
+  "last_progress_at": "2026-04-18T11:30:40.321Z",
   "last_report_at": "2026-04-18T05:27:33.796Z",
   "last_error": null,
   "changed_files": [
-    "ops/plan.json",
+    "src/App.jsx",
+    "src/components/ComparePanel.jsx",
+    "tests/e2e/workflow.spec.js",
     "ops/state.json",
     "ops/events.jsonl"
   ],
   "evidence": {
-    "completed_task": "task-004",
-    "result_summary": "move / undo / history API 与前端交互一致，history undone 状态已补齐"
+    "commit": "7a0667d",
+    "build_ok": true
   },
   "last_report_hash": "2fd910c9252a0f26ea5438358e393aeb171f6fdd"
 }

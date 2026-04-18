@@ -11,7 +11,8 @@
     "build:electron": "vite build && electron-builder",
     "start": "electron .",
     "progress:watchdog": "node scripts/progress-watchdog.js",
-    "progress:update": "node scripts/progress-update.js"
+    "progress:update": "node scripts/progress-update.js",
+    "progress:report": "node scripts/progress-report.js"
   },
   "build": {
     "appId": "com.dedupstudio.app",

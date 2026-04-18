@@ -7,10 +7,11 @@ const {
 
 async function main() {
   const thresholdMinutes = Number(process.argv[2] || 10);
+  const force = process.argv.includes('--force');
 
   const stallResult = await detectStall(thresholdMinutes);
   const reportResult = await maybeReport({
-    thresholdMinutes,
+    thresholdMinutes: force ? 0 : thresholdMinutes,
     emit: (message) => {
       process.stdout.write(`${message}\n`);
     },
@@ -22,12 +23,14 @@ async function main() {
     threshold_minutes: thresholdMinutes,
     stalled: stallResult.stalled,
     report_sent: !reportResult.skipped,
+    force,
   });
 
   process.stdout.write(`${JSON.stringify({
     stalled: stallResult.stalled,
     reported: !reportResult.skipped,
     status: state.status,
+    force,
   })}\n`);
 }
 

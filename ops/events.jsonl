@@ -6,3 +6,5 @@
 {"ts":"2026-04-18T02:23:41.769Z","type":"step_progress","step":"已修复 state 原子写入","changed_files":["ops/state.json","ops/events.jsonl","scripts/progress-lib.js","scripts/progress-watchdog.js","scripts/progress-update.js","package.json"],"status":"running","evidence":{"commit":"2bc325d","build_ok":true}}
 {"ts":"2026-04-18T02:23:41.774Z","type":"report_sent","threshold_minutes":0}
 {"ts":"2026-04-18T02:23:41.774Z","type":"watchdog_checked","threshold_minutes":0,"stalled":true,"report_sent":true}
+{"ts":"2026-04-18T02:36:42.870Z","type":"step_progress","step":"继续 Electron 联调排查","changed_files":["backend/app.py","ops/state.json","ops/events.jsonl","scripts/progress-lib.js","scripts/progress-watchdog.js","scripts/progress-update.js","package.json","src/components/ComparePanel.jsx"],"status":"running","evidence":{"commit":"a29cbc4","build_ok":true}}
+{"ts":"2026-04-18T02:58:12.587Z","type":"step_progress","step":"修复 watchdog 汇报闭环","changed_files":["ops/state.json","ops/events.jsonl","scripts/progress-lib.js","scripts/progress-watchdog.js","scripts/progress-update.js","package.json"],"status":"running","evidence":{"commit":"a29cbc4","build_ok":true}}

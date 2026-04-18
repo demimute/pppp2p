@@ -1,21 +1,20 @@
 {
   "current_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线联调并修复关键交互缺陷",
-  "current_step": "继续修复 compare/remove/undo E2E 断点",
+  "current_step": "扩展 ComparePanel 键盘快捷键 E2E",
   "status": "running",
   "started_at": "2026-04-18T03:21:09.149Z",
-  "last_progress_at": "2026-04-18T11:30:40.321Z",
+  "last_progress_at": "2026-04-18T11:38:00.132Z",
   "last_report_at": "2026-04-18T05:27:33.796Z",
   "last_error": null,
   "changed_files": [
-    "src/App.jsx",
+    "tests/e2e",
     "src/components/ComparePanel.jsx",
-    "tests/e2e/workflow.spec.js",
     "ops/state.json",
     "ops/events.jsonl"
   ],
   "evidence": {
-    "commit": "7a0667d",
-    "build_ok": true
+    "commit": "dedafab",
+    "workflow_e2e_ok": true
   },
   "last_report_hash": "2fd910c9252a0f26ea5438358e393aeb171f6fdd"
 }

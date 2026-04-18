@@ -3,26 +3,30 @@ const fs = require('fs');
 const path = require('path');
 
 const SOURCE_DIR = '/tmp/dedup-test';
-const TEST_DIR = '/tmp/dedup-test-multigroup';
-const DEDUP_DIR = '/tmp/dedup-test-multigroup-已去重';
 
-function resetTestDir() {
-  fs.rmSync(TEST_DIR, { recursive: true, force: true });
-  fs.rmSync(DEDUP_DIR, { recursive: true, force: true });
-  fs.mkdirSync(TEST_DIR, { recursive: true });
-
-  for (const entry of fs.readdirSync(SOURCE_DIR)) {
-    fs.copyFileSync(path.join(SOURCE_DIR, entry), path.join(TEST_DIR, entry));
-  }
-
-  const dupA = path.join(TEST_DIR, 'dup_a.png');
-  fs.writeFileSync(dupA, 'group-two-a');
-  fs.copyFileSync(dupA, path.join(TEST_DIR, 'dup_b.png'));
+function buildTestPaths(testInfo) {
+  const testDir = path.join('/tmp', `dedup-test-multigroup-${testInfo.parallelIndex}-${testInfo.retry}`);
+  const dedupDir = `${testDir}-已去重`;
+  return { testDir, dedupDir };
 }
 
-async function runAnalysis(page) {
+function resetTestDir(testDir, dedupDir) {
+  fs.rmSync(testDir, { recursive: true, force: true });
+  fs.rmSync(dedupDir, { recursive: true, force: true });
+  fs.mkdirSync(testDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(SOURCE_DIR)) {
+    fs.copyFileSync(path.join(SOURCE_DIR, entry), path.join(testDir, entry));
+  }
+
+  const dupA = path.join(testDir, 'dup_a.png');
+  fs.writeFileSync(dupA, 'group-two-a');
+  fs.copyFileSync(dupA, path.join(testDir, 'dup_b.png'));
+}
+
+async function runAnalysis(page, testDir) {
   await page.goto('/');
-  await page.getByPlaceholder(/输入文件夹路径/).fill(TEST_DIR);
+  await page.getByPlaceholder(/输入文件夹路径/).fill(testDir);
   await page.getByRole('button', { name: '加载路径' }).click();
   await page.getByRole('button', { name: /开始分析/ }).click();
   await expect(page.getByText(/已找到|没有发现符合当前策略的相似组/)).toBeVisible({ timeout: 30000 });
@@ -55,9 +59,10 @@ async function removeMarked(page) {
   await expect(page.getByText(/已移除/)).toBeVisible({ timeout: 30000 });
 }
 
-test('repeated remove and undo keep history stack consistent', async ({ page }) => {
-  resetTestDir();
-  await runAnalysis(page);
+test('repeated remove and undo keep history stack consistent', async ({ page }, testInfo) => {
+  const { testDir, dedupDir } = buildTestPaths(testInfo);
+  resetTestDir(testDir, dedupDir);
+  await runAnalysis(page, testDir);
   await removeMarked(page);
 
   const undoButton = page.getByRole('button', { name: /撤销/ });

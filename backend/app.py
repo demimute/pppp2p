@@ -68,6 +68,15 @@ def scan():
         if not folder_path.exists() or not folder_path.is_dir():
             return jsonify({"error": f"folder does not exist: {folder}"}), 400
 
+        # If the dedup folder has been removed externally, treat this folder as a fresh session.
+        # This prevents stale undo/history state from surviving across test fixture resets.
+        dest_folder = folder_path.parent / f"{folder_path.name}-已去重"
+        if not dest_folder.exists():
+            _undo_stack.pop(folder, None)
+            _last_op.pop(folder, None)
+            global _history
+            _history = [entry for entry in _history if entry.folder != folder]
+
         # Scan images
         all_images = []
         for entry in sorted(folder_path.iterdir()):
@@ -254,15 +263,17 @@ def groups():
             clip_groups = find_groups_clip(embeddings, threshold=0.92, loose_threshold=0.85, file_sizes=sizes)
             # Filter to only those where pHash also matches
             filtered_groups = []
+            from engine.similarity import hamming_distance
             for g in clip_groups:
                 winner_hash = hashes.get(g.winner, "")
                 new_members = []
                 for m in g.members:
                     h = hashes.get(m.name, "")
                     if h and winner_hash:
-                        from engine.similarity import hamming_distance
                         dist = hamming_distance(winner_hash, h)
                         if dist <= 10:
+                            # Set hamming_distance on the existing member
+                            m.hamming_distance = dist
                             new_members.append(m)
                 if len(new_members) >= 2:
                     # Update winner_size
@@ -307,6 +318,7 @@ def groups():
                             "to_remove": m.to_remove,
                             "size": sizes.get(m.name, 0),
                             "path": str(Path(folder) / m.name),
+                            "hamming_distance": m.hamming_distance,
                         }
                         for m in g.members
                     ],
@@ -419,7 +431,12 @@ def undo():
                 shutil.move(dest, src)
                 restored += 1
 
-        # Update history
+        # Update history: mark the most recent entry for this folder as undone
+        for entry in reversed(_history):
+            if entry.folder == folder and not entry.undone:
+                entry.undone = True
+                break
+
         if folder in _last_op:
             del _last_op[folder]
 
@@ -482,6 +499,7 @@ def history():
                     "threshold": h.threshold,
                     "removed": h.removed,
                     "folder": h.folder,
+                    "undone": h.undone,
                 }
                 for h in reversed(_history)
             ]

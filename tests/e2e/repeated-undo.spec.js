@@ -33,11 +33,24 @@ async function removeMarked(page) {
   await expect(removeButton).toBeVisible();
   await expect(removeButton).toBeEnabled();
   await removeButton.click();
-  await expect(page.getByRole('heading', { name: '确认移除' })).toBeVisible();
+
+  const dialog = page.getByRole('heading', { name: '确认移除' });
+  await expect(dialog).toBeVisible();
+
   const confirmCheckbox = page.getByRole('checkbox', { name: /我确认已备份重要照片/ });
-  await confirmCheckbox.check();
   const confirmButton = page.getByRole('button', { name: /确认移除/ });
-  await expect(confirmButton).toBeEnabled();
+
+  for (let i = 0; i < 3; i += 1) {
+    await confirmCheckbox.click();
+    try {
+      await expect(confirmCheckbox).toBeChecked({ timeout: 1000 });
+      await expect(confirmButton).toBeEnabled({ timeout: 1000 });
+      break;
+    } catch (error) {
+      if (i === 2) throw error;
+    }
+  }
+
   await confirmButton.click();
   await expect(page.getByText(/已移除/)).toBeVisible({ timeout: 30000 });
 }

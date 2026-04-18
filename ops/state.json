@@ -1,0 +1,21 @@
+{
+  "current_goal": "验证 Electron -> Renderer -> Backend 联调",
+  "current_step": "已修复 state 原子写入",
+  "status": "running",
+  "started_at": "2026-04-18T10:21:00+08:00",
+  "last_progress_at": "2026-04-18T02:23:41.768Z",
+  "last_report_at": "2026-04-18T02:23:41.773Z",
+  "last_error": null,
+  "changed_files": [
+    "ops/state.json",
+    "ops/events.jsonl",
+    "scripts/progress-lib.js",
+    "scripts/progress-watchdog.js",
+    "scripts/progress-update.js",
+    "package.json"
+  ],
+  "evidence": {
+    "commit": "2bc325d",
+    "build_ok": true
+  }
+}

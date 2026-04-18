@@ -1,0 +1,8 @@
+{"ts":"2026-04-18T10:21:00+08:00","type":"goal_set","goal":"验证 Electron -> Renderer -> Backend 联调"}
+{"ts":"2026-04-18T10:21:00+08:00","type":"step_started","step":"落地持续推进与定时汇报机制"}
+{"ts":"2026-04-18T02:23:18.834Z","type":"stall_detected","threshold_minutes":0}
+{"ts":"2026-04-18T02:23:18.839Z","type":"report_sent","threshold_minutes":0}
+{"ts":"2026-04-18T02:23:18.839Z","type":"watchdog_checked","threshold_minutes":0,"stalled":true,"report_sent":true}
+{"ts":"2026-04-18T02:23:41.769Z","type":"step_progress","step":"已修复 state 原子写入","changed_files":["ops/state.json","ops/events.jsonl","scripts/progress-lib.js","scripts/progress-watchdog.js","scripts/progress-update.js","package.json"],"status":"running","evidence":{"commit":"2bc325d","build_ok":true}}
+{"ts":"2026-04-18T02:23:41.774Z","type":"report_sent","threshold_minutes":0}
+{"ts":"2026-04-18T02:23:41.774Z","type":"watchdog_checked","threshold_minutes":0,"stalled":true,"report_sent":true}

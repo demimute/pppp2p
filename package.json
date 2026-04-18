@@ -1,0 +1,49 @@
+{
+  "name": "dedup-studio",
+  "version": "1.0.0",
+  "description": "智能照片去重助手 - 基于 CLIP 视觉嵌入 + 感知哈希",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "electron .",
+    "build": "vite build",
+    "build:electron": "vite build && electron-builder",
+    "start": "electron .",
+    "progress:watchdog": "node scripts/progress-watchdog.js",
+    "progress:update": "node scripts/progress-update.js"
+  },
+  "build": {
+    "appId": "com.dedupstudio.app",
+    "productName": "DedupStudio",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*"
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    }
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.18",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.1.0"
+  }
+}

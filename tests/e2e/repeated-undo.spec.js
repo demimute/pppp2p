@@ -1,6 +1,24 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
 
+const SOURCE_DIR = '/tmp/dedup-test';
 const TEST_DIR = '/tmp/dedup-test-multigroup';
+const DEDUP_DIR = '/tmp/dedup-test-multigroup-已去重';
+
+function resetTestDir() {
+  fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  fs.rmSync(DEDUP_DIR, { recursive: true, force: true });
+  fs.mkdirSync(TEST_DIR, { recursive: true });
+
+  for (const entry of fs.readdirSync(SOURCE_DIR)) {
+    fs.copyFileSync(path.join(SOURCE_DIR, entry), path.join(TEST_DIR, entry));
+  }
+
+  const dupA = path.join(TEST_DIR, 'dup_a.png');
+  fs.writeFileSync(dupA, 'group-two-a');
+  fs.copyFileSync(dupA, path.join(TEST_DIR, 'dup_b.png'));
+}
 
 async function runAnalysis(page) {
   await page.goto('/');
@@ -16,12 +34,16 @@ async function removeMarked(page) {
   await expect(removeButton).toBeEnabled();
   await removeButton.click();
   await expect(page.getByRole('heading', { name: '确认移除' })).toBeVisible();
-  await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: /确认移除/ }).click();
+  const confirmCheckbox = page.getByRole('checkbox', { name: /我确认已备份重要照片/ });
+  await confirmCheckbox.check();
+  const confirmButton = page.getByRole('button', { name: /确认移除/ });
+  await expect(confirmButton).toBeEnabled();
+  await confirmButton.click();
   await expect(page.getByText(/已移除/)).toBeVisible({ timeout: 30000 });
 }
 
 test('repeated remove and undo keep history stack consistent', async ({ page }) => {
+  resetTestDir();
   await runAnalysis(page);
   await removeMarked(page);
 

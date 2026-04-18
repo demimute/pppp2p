@@ -1,9 +1,9 @@
 {
   "current_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线联调并修复关键交互缺陷",
-  "current_step": "排查全量回归中的多组不稳定点",
+  "current_step": "继续稳定性回归：连续移除与连续撤销",
   "status": "running",
   "started_at": "2026-04-18T03:21:09.149Z",
-  "last_progress_at": "2026-04-18T12:07:00.603Z",
+  "last_progress_at": "2026-04-18T12:11:30.420Z",
   "last_report_at": "2026-04-18T05:27:33.796Z",
   "last_error": null,
   "changed_files": [
@@ -12,8 +12,8 @@
     "ops/events.jsonl"
   ],
   "evidence": {
-    "commit": "72f5446",
-    "multigroup_single_ok": true
+    "commit": "54f0f91",
+    "full_e2e_ok": true
   },
   "last_report_hash": "2fd910c9252a0f26ea5438358e393aeb171f6fdd"
 }

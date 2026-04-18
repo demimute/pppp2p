@@ -1,0 +1,14 @@
+{
+  "backend": {
+    "owner": "backend-agent",
+    "areas": ["backend/app.py", "backend/models.py", "backend/engine"]
+  },
+  "frontend": {
+    "owner": "frontend-agent",
+    "areas": ["src", "electron"]
+  },
+  "intelligence": {
+    "owner": "intelligence-agent",
+    "areas": ["backend/engine/intelligence.py", "src/App.jsx"]
+  }
+}

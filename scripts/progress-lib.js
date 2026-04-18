@@ -180,9 +180,12 @@ module.exports = {
   detectStall,
   loadState,
   maybeReport,
+  nowIso,
+  readJson,
   recordFailure,
   recordProgress,
   renderReport,
   saveState,
   updateState,
+  writeJson,
 };

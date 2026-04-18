@@ -1,0 +1,41 @@
+{
+  "main_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线闭环",
+  "active_tasks": [
+    {
+      "id": "task-001",
+      "title": "验证目录选择 -> 扫描 -> 分析链路",
+      "module": "frontend",
+      "owner": "frontend-agent",
+      "status": "running",
+      "depends_on": []
+    }
+  ],
+  "queued_tasks": [
+    {
+      "id": "task-002",
+      "title": "验证 ComparePanel -> 移除 -> Undo 链路",
+      "module": "frontend",
+      "owner": null,
+      "status": "queued",
+      "depends_on": ["task-001"]
+    },
+    {
+      "id": "task-003",
+      "title": "验证 phash/dual/intelligence UI 展示与后端返回一致",
+      "module": "intelligence",
+      "owner": null,
+      "status": "queued",
+      "depends_on": ["task-001"]
+    },
+    {
+      "id": "task-004",
+      "title": "验证后端 move/undo/history API 与前端交互一致",
+      "module": "backend",
+      "owner": null,
+      "status": "queued",
+      "depends_on": ["task-002"]
+    }
+  ],
+  "blocked_tasks": [],
+  "completed_tasks": []
+}

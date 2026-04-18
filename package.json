@@ -12,7 +12,10 @@
     "start": "electron .",
     "progress:watchdog": "node scripts/progress-watchdog.js",
     "progress:update": "node scripts/progress-update.js",
-    "progress:report": "node scripts/progress-report.js"
+    "progress:report": "node scripts/progress-report.js",
+    "task:orchestrator": "node scripts/task-orchestrator.js",
+    "task:complete": "node scripts/task-complete.js",
+    "task:watchdog": "node scripts/task-watchdog.js"
   },
   "build": {
     "appId": "com.dedupstudio.app",

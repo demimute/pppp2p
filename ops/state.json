@@ -1,21 +1,18 @@
 {
-  "current_goal": "验证 Electron -> Renderer -> Backend 联调",
-  "current_step": "修复 watchdog 汇报闭环",
+  "current_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线联调并修复关键交互缺陷",
+  "current_step": "等待续派: 验证 phash/dual/intelligence UI 展示与后端返回一致",
   "status": "running",
-  "started_at": "2026-04-18T10:21:00+08:00",
-  "last_progress_at": "2026-04-18T02:58:12.585Z",
-  "last_report_at": "2026-04-18T02:23:41.773Z",
+  "started_at": "2026-04-18T03:21:09.149Z",
+  "last_progress_at": "2026-04-18T05:02:06.025Z",
+  "last_report_at": "2026-04-18T02:59:04.502Z",
   "last_error": null,
   "changed_files": [
+    "ops/plan.json",
     "ops/state.json",
-    "ops/events.jsonl",
-    "scripts/progress-lib.js",
-    "scripts/progress-watchdog.js",
-    "scripts/progress-update.js",
-    "package.json"
+    "ops/events.jsonl"
   ],
   "evidence": {
-    "commit": "a29cbc4",
+    "commit": "81ae0c4",
     "build_ok": true
   }
 }

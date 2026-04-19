@@ -547,23 +547,19 @@ function App() {
                 </div>
               </div>
 
-              {/* Same-person pose refinement (placeholder — backend Phase 2) */}
-              <div>
+              {/* Same-person pose refinement is automatic until Phase 2 is implemented */}
+              <div className="rounded-lg border border-dashed border-purple-200 bg-white/70 px-4 py-3 dark:border-purple-800/70 dark:bg-slate-900/50">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs text-purple-600 dark:text-purple-300">同人姿态精细判定</span>
                   <span className="text-xs text-purple-400">
-                    {personEnhance.enabled ? '同人时参考' : '需开启判别'}
+                    {personEnhance.enabled ? '系统内置规则' : '需开启判别'}
                   </span>
                 </div>
-                <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full"
-                    style={{ width: '40%' }}
-                  />
-                </div>
-                <div className="flex justify-between text-xs text-purple-400 mt-1">
-                  <span>粗判</span>
-                  <span>精细</span>
+                <p className="text-sm text-gray-700 dark:text-gray-200">
+                  当前不提供单独调节。仅在已判定为同一人物后，系统才会自动参考姿态接近度做细化判断。
+                </p>
+                <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  这一步只用于同人后的细排，不会单独放行异人入组。
                 </div>
               </div>
 

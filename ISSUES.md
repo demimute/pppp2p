@@ -63,8 +63,8 @@
 - 发现时间：2026-04-19
 - 表现：`/api/groups` 当前 dual 链路里，`different person` 只通过 `person_adjustment` 降分，但成员仍会被追加进入 `new_members`，导致明显异人仍可能被并入同组。
 - 根因判断：人物身份判别结果只参与显示分数更新，没有被提升为最终入组门槛或硬过滤条件。
-- 当前状态：OPEN
-- 处理方式：后续需将 `different person` 改为硬过滤，或至少纳入最终入组裁决；同时补充 `decision_reason` / `hard_rejected_by_identity` 以增强可解释性。
+- 当前状态：FIXED
+- 处理方式：已将 `person_identity_state == 'different'` 提升为硬过滤条件，成员不再进入 `new_members`；同时返回 `hard_rejected_by_identity` 标记，并补充后端回归测试覆盖该行为。
 
 ## ISSUE-010: 同人姿态精细判定 UI 仍为占位控件
 - 发现时间：2026-04-19

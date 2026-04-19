@@ -51,12 +51,13 @@ test.describe('Person Disambiguation UI', () => {
     await expect(enhanceCard.getByText('不同人物强抑制')).toBeVisible();
   });
 
-  test('intelligence card label reflects person disambiguation', async ({ page }) => {
+  test('pose refinement is shown as built-in guidance instead of a separate slider', async ({ page }) => {
     const enhanceCard = page.locator('div').filter({ has: page.getByText('🧑 人物判别') }).first();
     await expect(enhanceCard).toBeVisible();
-    // New control labels: weak/middle/strong instead of retain/remove/balanced
     await expect(enhanceCard.getByText('弱').first()).toBeVisible();
     await expect(enhanceCard.getByText('同人姿态精细判定')).toBeVisible();
+    await expect(enhanceCard.getByText('系统内置规则')).toBeVisible();
+    await expect(enhanceCard.getByText(/当前不提供单独调节/)).toBeVisible();
   });
 
   test('strategy description reflects person disambiguation for dual', async ({ page }) => {

@@ -37,6 +37,7 @@ function App() {
   const [imageCount, setImageCount] = useState(0);
   const [selectedStrategy, setSelectedStrategy] = useState('clip');
   const [threshold, setThreshold] = useState(0.93);
+  const [dualThreshold, setDualThreshold] = useState({ clip: 0.92, phash: 10 });
   const [groups, setGroups] = useState([]);
   // Keep a ref to current groups so handleCompareAction can read fresh state in callbacks
   const groupsRef = useRef(groups);
@@ -97,6 +98,8 @@ function App() {
     const strategyConfig = STRATEGIES.find((s) => s.id === selectedStrategy);
     if (strategyConfig?.threshold) {
       setThreshold(strategyConfig.threshold.default);
+    } else if (selectedStrategy === 'dual') {
+      setDualThreshold({ clip: 0.92, phash: 10 });
     }
     setAnalysisMessage('');
     setIntelligence(null);
@@ -140,16 +143,18 @@ function App() {
   const handleStartAnalysis = async ({ overrideThreshold } = {}) => {
     if (!selectedFolder) return;
 
-    // Close ComparePanel before rebuilding groups to avoid stale group reference.
-    // If ComparePanel stays open while groups refreshes, its comparePanel.group
-    // still points to the old group object and handleCompareAction mutations are lost.
     closeComparePanel();
 
     setIsAnalyzing(true);
     setAnalysisMessage('');
     try {
-      const currentStrategy = STRATEGIES.find(s => s.id === selectedStrategy);
-      const thresholdValue = overrideThreshold ?? threshold ?? currentStrategy?.threshold?.default;
+      const currentStrategy = STRATEGIES.find((s) => s.id === selectedStrategy);
+      const thresholdValue = selectedStrategy === 'dual'
+        ? {
+            clip: overrideThreshold?.clip ?? dualThreshold.clip,
+            phash: overrideThreshold?.phash ?? dualThreshold.phash,
+          }
+        : (typeof overrideThreshold === 'number' ? overrideThreshold : threshold ?? currentStrategy?.threshold?.default);
 
       const scanResult = await post('/api/scan', { folder: selectedFolder });
       const images = scanResult?.images?.map((img) => img.name) || [];
@@ -164,7 +169,9 @@ function App() {
       const result = await post('/api/groups', {
         folder: selectedFolder,
         strategy: selectedStrategy,
-        threshold: thresholdValue,
+        threshold: selectedStrategy === 'dual' ? thresholdValue.clip : thresholdValue,
+        clip_threshold: selectedStrategy === 'dual' ? thresholdValue.clip : undefined,
+        phash_threshold: selectedStrategy === 'dual' ? thresholdValue.phash : undefined,
         loose_threshold: 0.85,
       });
 
@@ -189,7 +196,11 @@ function App() {
   };
 
   const handleThresholdChange = (newThreshold) => {
-    setThreshold(newThreshold);
+    if (selectedStrategy === 'dual') {
+      setDualThreshold(newThreshold);
+    } else {
+      setThreshold(newThreshold);
+    }
     // Note: threshold-only change does NOT trigger re-analysis.
     // The ThresholdSlider shows locally-computed estimates.
     // Clear stale analysis message so user isn't misled.
@@ -269,6 +280,10 @@ function App() {
   };
 
   const applyAlternativeThreshold = async (altThreshold) => {
+    if (selectedStrategy === 'dual') {
+      return;
+    }
+
     setThreshold(altThreshold);
     setAnalysisMessage(`已切换到备选阈值 ${altThreshold}，正在重新分析...`);
     await handleStartAnalysis({ overrideThreshold: altThreshold });
@@ -286,13 +301,12 @@ function App() {
       await fetchHistory();
 
       if (selectedFolder === targetFolder) {
-        // Files are restored on disk. Close ComparePanel and clear ALL to_remove
-        // marks so the UI is consistent with the restored files.
         closeComparePanel();
-        setGroups(prev => prev.map(g => ({
+        setGroups((prev) => prev.map((g) => ({
           ...g,
-          members: g.members.map(m => ({ ...m, to_remove: false })),
+          members: g.members.map((m) => ({ ...m, to_remove: false })),
         })));
+        await handleStartAnalysis();
       }
     } else {
       // Undo failed (e.g., nothing to undo, or backend error)
@@ -317,23 +331,63 @@ function App() {
       return;
     }
 
+    const removedNames = new Set(moves.map((move) => move.name));
+
     setIsRemoving(true);
     setAnalysisMessage('正在执行移除...');
 
     try {
+      const strategyThreshold = selectedStrategy === 'dual' ? dualThreshold.clip : threshold;
       const result = await post('/api/move', {
         folder: selectedFolder,
         strategy: selectedStrategy,
-        threshold,
+        threshold: strategyThreshold,
         moves,
       });
 
       if (result?.success) {
+        const nextGroups = groups
+          .map((group) => {
+            const remainingMembers = group.members.filter((member) => !removedNames.has(member.name));
+            if (remainingMembers.length < 2) {
+              return null;
+            }
+
+            const nextWinner = remainingMembers.some((member) => member.name === group.winner)
+              ? group.winner
+              : remainingMembers[0].name;
+
+            return {
+              ...group,
+              winner: nextWinner,
+              winner_size: remainingMembers.find((member) => member.name === nextWinner)?.size || group.winner_size,
+              members: remainingMembers.map((member) => ({ ...member, to_remove: false })),
+            };
+          })
+          .filter(Boolean);
+
+        const remainingImageCount = Math.max(0, imageCount - moves.length);
+        const remainingMarked = nextGroups.reduce(
+          (count, group) => count + group.members.filter((member) => member.to_remove).length,
+          0,
+        );
+
+        setGroups(nextGroups);
+        setStats({
+          total_groups: nextGroups.length,
+          to_remove: remainingMarked,
+          to_keep: Math.max(0, remainingImageCount - remainingMarked),
+        });
+        setImageCount(remainingImageCount);
         setConfirmDialog({ open: false, group: null });
         closeComparePanel();
         setUndoFeedback({ type: 'success', message: `已移除 ${result.moved ?? moves.length} 张照片` });
+        setAnalysisMessage(
+          nextGroups.length > 0
+            ? `已找到 ${nextGroups.length} 组相似照片，待移除 ${remainingMarked} 张`
+            : '没有发现符合当前策略的相似组'
+        );
         await fetchHistory();
-        await handleStartAnalysis();
       } else {
         setUndoFeedback({ type: 'error', message: result?.error || '执行移除失败' });
         setAnalysisMessage(result?.error || '执行移除失败');
@@ -408,10 +462,11 @@ function App() {
         />
 
         {/* Threshold Slider (only for CLIP and pHash) */}
-        {(selectedStrategy === 'clip' || selectedStrategy === 'phash') && (
+        {(selectedStrategy === 'clip' || selectedStrategy === 'phash' || selectedStrategy === 'dual') && (
           <ThresholdSlider
+            key={`threshold-${selectedStrategy}`}
             strategy={selectedStrategy}
-            value={threshold}
+            value={selectedStrategy === 'dual' ? dualThreshold : threshold}
             onChange={handleThresholdChange}
             stats={stats}
           />
@@ -466,7 +521,11 @@ function App() {
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
                 <div className="text-xs text-gray-500 dark:text-gray-400">推荐阈值</div>
-                <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{intelligence.recommended_threshold}</div>
+                <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+                  {selectedStrategy === 'dual'
+                    ? `${dualThreshold.clip.toFixed(2)} / ${Math.round(dualThreshold.phash)}`
+                    : intelligence.recommended_threshold}
+                </div>
               </div>
               <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
                 <div className="text-xs text-gray-500 dark:text-gray-400">建议策略</div>
@@ -474,10 +533,14 @@ function App() {
               </div>
               <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
                 <div className="text-xs text-gray-500 dark:text-gray-400">推荐原因</div>
-                <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">{intelligence.reason}</div>
+                <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                  {selectedStrategy === 'dual'
+                    ? '双保险要求 CLIP 相似度与 pHash 距离两条阈值同时满足，适合对误删更敏感的场景。'
+                    : intelligence.reason}
+                </div>
               </div>
             </div>
-            {intelligence.alternatives && intelligence.alternatives.length > 0 && (
+            {selectedStrategy !== 'dual' && intelligence.alternatives && intelligence.alternatives.length > 0 && (
               <details className="mt-3 rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
                 <summary className="px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
                   备选阈值方案 ({intelligence.alternatives.length} 个)

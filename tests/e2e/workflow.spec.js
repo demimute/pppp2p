@@ -25,6 +25,7 @@ test('compare -> mark remove -> execute remove -> undo', async ({ page }) => {
 
   await expect(page.getByText(/已移除 1 张照片/)).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('button', { name: /撤销/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^img1\.png, 相似度 100\.0%$/ })).toHaveCount(0);
 
   await page.getByRole('button', { name: /撤销/ }).click();
   await expect(page.getByText(/已恢复 1 张照片/)).toBeVisible({ timeout: 30000 });

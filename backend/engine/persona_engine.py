@@ -30,10 +30,10 @@ from cache import get_cache, set_cache
 # Thresholds for Phase 1 person disambiguation
 # ---------------------------------------------------------------------------
 
-# Identity thresholds (cosine similarity on persona vector)
-IDENTITY_THRESHOLD_SAME: float = 0.85   # ≥ this → same person
-IDENTITY_THRESHOLD_DIFF: float = 0.40   # ≤ this → different person
-IDENTITY_THRESHOLD_UNCERTAIN: float = 0.60  # in-between → uncertain
+# Identity thresholds (weighted content similarity on persona vector)
+IDENTITY_THRESHOLD_SAME: float = 0.92   # ≥ this → same person
+IDENTITY_THRESHOLD_DIFF: float = 0.72   # ≤ this → different person
+IDENTITY_THRESHOLD_UNCERTAIN: float = 0.84  # in-between → uncertain
 
 # Pose similarity threshold
 POSE_THRESHOLD_CLOSE: float = 0.80     # ≥ this → pose close
@@ -102,23 +102,43 @@ def persona_similarity(a: List[float], b: List[float]) -> float:
 def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float]:
     """Classify whether two persona vectors belong to the same person.
 
+    The lightweight v1 path is intentionally stricter than raw cosine
+    similarity alone. We combine overall similarity with targeted checks for
+    color drift and layout drift so that "same composition, different outfit"
+    does not get over-accepted as the same person.
+
     Returns:
         (state, score) where state ∈ {same, different, uncertain, unavailable}
-        and score is the raw cosine similarity [0, 1].
+        and score is the weighted identity similarity.
     """
     if not a or not b:
         return "unavailable", 0.0
-    sim = persona_similarity(a, b)
+
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
     quality = min(norm_a, norm_b)
     if quality < MIN_PERSONA_QUALITY:
-        return "unavailable", sim
-    if sim >= IDENTITY_THRESHOLD_SAME:
-        return "same", sim
-    if sim <= IDENTITY_THRESHOLD_DIFF:
-        return "different", sim
-    return "uncertain", sim
+        return "unavailable", 0.0
+
+    sim = persona_similarity(a, b)
+
+    color_gap = max(abs(a[i] - b[i]) for i in range(6))
+    profile_gap = max(abs(a[i] - b[i]) for i in range(6, 10))
+    center_gap = abs(a[10] - b[10]) + abs(a[11] - b[11])
+    structure_gap = max(abs(a[i] - b[i]) for i in range(12, 16))
+
+    score = sim
+    score -= min(color_gap * 0.35, 0.35)
+    score -= min(profile_gap * 0.20, 0.20)
+    score -= min(center_gap * 0.08, 0.08)
+    score -= min(structure_gap * 0.12, 0.12)
+    score = max(-1.0, min(1.0, score))
+
+    if score >= IDENTITY_THRESHOLD_SAME:
+        return "same", score
+    if score <= IDENTITY_THRESHOLD_DIFF:
+        return "different", score
+    return "uncertain", score
 
 
 def classify_pose_similarity(a: List[float], b: List[float]) -> tuple[str, float]:
@@ -217,14 +237,15 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     The vector intentionally avoids filename or filesystem metadata so that
     person disambiguation depends on what is visible in the image:
 
-    - 6 dims: coarse color distribution (RGB means/stds)
+    - 6 dims: torso/body-region color signature (mean RGB + std RGB)
     - 4 dims: luminance layout across vertical body-like regions
     - 2 dims: brightness center-of-mass (x/y)
     - 2 dims: edge density and left/right balance
     - 2 dims: aspect ratio and contrast strength
 
-    This is still much weaker than a real face or ReID model, but it is a
-    genuine image-derived signal and remains cheap enough for local CPU use.
+    Compared with a full-frame average, the torso-weighted color signature is
+    much more sensitive to clothing differences, which is useful for a cheap
+    local identity heuristic.
     """
     try:
         with Image.open(img_path) as img:
@@ -237,11 +258,15 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     if arr.size == 0:
         return []
 
-    rgb_means = arr.mean(axis=(0, 1))
-    rgb_stds = arr.std(axis=(0, 1))
-
+    h, w, _ = arr.shape
     gray = arr.mean(axis=2)
-    h, w = gray.shape
+
+    torso = arr[int(h * 0.28):int(h * 0.78), int(w * 0.22):int(w * 0.78), :]
+    if torso.size == 0:
+        torso = arr
+
+    torso_means = torso.mean(axis=(0, 1))
+    torso_stds = torso.std(axis=(0, 1))
 
     vertical_slices = np.array_split(gray, 4, axis=0)
     vertical_profile = [float(s.mean()) for s in vertical_slices]
@@ -268,8 +293,8 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     contrast_strength = float(gray.std())
 
     raw = [
-        *rgb_means.tolist(),
-        *rgb_stds.tolist(),
+        *torso_means.tolist(),
+        *torso_stds.tolist(),
         *vertical_profile,
         center_x,
         center_y,

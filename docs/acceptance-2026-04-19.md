@@ -52,8 +52,16 @@
   - 双保险策略保持启用
   - 可完成一次分析并得到稳定结果文案
 
+## 轻量 Identity v1 进展
+
+- `backend/engine/persona_engine.py` 已从文件名/文件属性 mock 特征切换为基于真实图像内容的 16 维轻量签名。
+- 当前签名由 RGB 均值/方差、纵向亮度布局、亮度重心、边缘密度、左右平衡、纵横比与对比度组成，不依赖额外重模型。
+- `tests/backend/test_persona.py` 已补齐基于真实临时图片的稳定性与差异性断言，当前 `30 passed`。
+- 这一版仍属于轻量本地启发式 identity signal，不等同于真实 face embedding；但它已经摆脱了文件名假特征，适合作为 v1 过渡实现继续接入真实目录手测。
+
 ## 剩余风险
 
 - 仍缺少完整 Electron UI 自动化，当前主要依赖 web 回归 + Electron 启动链路验证。
 - `src/App.jsx` 内部仍有一部分旧短文案，需要与 `StrategySelector.jsx` 保持完全一致。
 - 后端状态虽然已可从主进程读取，但前端展示仍需保持简洁，避免把低层 stderr 原文直接铺给用户。
+- 轻量 image-content signature 目前更像“人物外观近似信号”，还不是严格的人脸身份模型；后续仍需要真实目录样本校准阈值。

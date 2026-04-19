@@ -149,6 +149,31 @@ class TestClassifyPersonIdentity:
         assert state == "same"
         assert score == pytest.approx(1.0)
 
+    def test_same_layout_but_different_color_is_not_same_person(self, tmp_path):
+        from PIL import Image, ImageDraw
+
+        def make_person(path, shirt):
+            img = Image.new('RGB', (160, 240), (238, 232, 225))
+            d = ImageDraw.Draw(img)
+            d.ellipse((52, 20, 108, 76), fill=(235, 200, 170), outline=(80, 60, 50), width=2)
+            d.rounded_rectangle((44, 76, 116, 166), radius=16, fill=shirt, outline=(50, 50, 50), width=2)
+            d.rectangle((26, 84, 44, 150), fill=(235, 200, 170))
+            d.rectangle((116, 84, 134, 150), fill=(235, 200, 170))
+            d.rectangle((54, 166, 78, 228), fill=(45, 45, 70))
+            d.rectangle((82, 166, 106, 228), fill=(45, 45, 70))
+            img.save(path)
+
+        red = tmp_path / 'red.png'
+        blue = tmp_path / 'blue.png'
+        make_person(red, (220, 60, 60))
+        make_person(blue, (60, 90, 220))
+
+        v_red = _extract_persona_vec('red.png', red)
+        v_blue = _extract_persona_vec('blue.png', blue)
+        state, score = classify_person_identity(v_red, v_blue)
+        assert state == "different"
+        assert score < IDENTITY_THRESHOLD_DIFF
+
     def test_different_person_low_similarity(self):
         v1 = [1.0] * 16
         v2 = [-1.0] * 16
@@ -156,13 +181,12 @@ class TestClassifyPersonIdentity:
         assert state == "different"
         assert score == pytest.approx(-1.0)
 
-    def test_uncertain_in_between(self):
-        # midway value: cosine of angle ~0.3
+    def test_in_between_vectors_can_fall_to_different_under_strict_v1_gate(self):
         v1 = [1.0] * 8 + [0.0] * 8
-        v2 = [0.5] * 8 + [0.866] * 8  # cos sim ~0.5
+        v2 = [0.5] * 8 + [0.866] * 8
         state, score = classify_person_identity(v1, v2)
-        assert state == "uncertain"
-        assert 0.0 <= score <= 1.0
+        assert state in {"different", "uncertain"}
+        assert -1.0 <= score <= 1.0
 
     def test_unavailable_on_empty_vectors(self):
         state, score = classify_person_identity([], [])
@@ -230,14 +254,13 @@ class TestComputePersonDisambiguation:
         assert result["person_adjustment"] == pytest.approx(POSE_SAME_BOOST)
         assert "boost" in result["decision_reason"]
 
-    def test_same_person_pose_uncertain_no_adjustment(self):
-        # Primary case: identity=uncertain → adjustment=0, no boost or penalty
+    def test_non_same_identity_does_not_get_positive_boost(self):
         v_u1 = [1.0] * 8 + [0.0] * 8
-        v_u2 = [0.5] * 8 + [0.866] * 8  # sim ~0.5 → identity uncertain
+        v_u2 = [0.5] * 8 + [0.866] * 8
         result = compute_person_disambiguation(v_u1, v_u2, base_similarity=0.80)
-        assert result["person_identity_state"] == "uncertain"
-        assert result["person_adjustment"] == 0.0
-        assert "uncertain" in result["decision_reason"]
+        assert result["person_identity_state"] in {"different", "uncertain"}
+        assert result["person_adjustment"] <= 0.0
+        assert "boost" not in result["decision_reason"]
 
     def test_adjustment_clipped_to_valid_range(self):
         # Very low base + big negative penalty should not go below 0

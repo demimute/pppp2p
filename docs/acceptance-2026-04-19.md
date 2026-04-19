@@ -59,9 +59,21 @@
 - `tests/backend/test_persona.py` 已补齐基于真实临时图片的稳定性与差异性断言，当前 `30 passed`。
 - 这一版仍属于轻量本地启发式 identity signal，不等同于真实 face embedding；但它已经摆脱了文件名假特征，适合作为 v1 过渡实现继续接入真实目录手测。
 
+## 真实目录手测结论
+
+- 已用临时近真实样本目录 `/tmp/dedup-real-handtest-v1` 直接走 `/api/groups` 的 `dual + enhanced_persona` 链路复测轻量 identity v1。
+- 这一轮把 persona 特征从“全图颜色均值”进一步收紧为“torso 主体区域颜色签名 + 布局特征”，并将 identity 判定改为“余弦相似度 + 颜色/布局/结构差异惩罚”。
+- 复测结果显示：
+  - `same_a.png` 与 `same_a_copy.png` 仍稳定判为 `same`。
+  - `same_pose_diff_person.png` 对 `same_a.png` 已可判为 `different`。
+  - `same_pose_diff_person.png` 对 `diff_green.png` 已从误判 `same` 收敛到 `uncertain`。
+  - `same_pose_diff_person.png` 对 `diff_blue.png` 仍会误判为 `same`，说明当前轻量签名对“高度同模板、仅主体局部颜色接近”的异人场景仍不够稳。
+- 结论：轻量 identity v1 已明显优于上一版纯全局签名，但当前更适合作为“弱 identity signal”，还不能当作强身份判别模型使用。
+
 ## 剩余风险
 
 - 仍缺少完整 Electron UI 自动化，当前主要依赖 web 回归 + Electron 启动链路验证。
 - `src/App.jsx` 内部仍有一部分旧短文案，需要与 `StrategySelector.jsx` 保持完全一致。
 - 后端状态虽然已可从主进程读取，但前端展示仍需保持简洁，避免把低层 stderr 原文直接铺给用户。
 - 轻量 image-content signature 目前更像“人物外观近似信号”，还不是严格的人脸身份模型；后续仍需要真实目录样本校准阈值。
+- 下一步应优先增强局部块颜色直方图或主体遮罩近似，而不是继续单纯调整阈值。

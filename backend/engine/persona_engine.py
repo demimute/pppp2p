@@ -104,8 +104,9 @@ def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float
 
     The lightweight v1 path is intentionally stricter than raw cosine
     similarity alone. We combine overall similarity with targeted checks for
-    color drift and layout drift so that "same composition, different outfit"
-    does not get over-accepted as the same person.
+    torso color drift, local histogram drift, layout drift, and structural
+    differences so that "same composition, different outfit" does not get
+    over-accepted as the same person.
 
     Returns:
         (state, score) where state ∈ {same, different, uncertain, unavailable}
@@ -122,14 +123,16 @@ def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float
 
     sim = persona_similarity(a, b)
 
-    color_gap = max(abs(a[i] - b[i]) for i in range(6))
-    profile_gap = max(abs(a[i] - b[i]) for i in range(6, 10))
-    center_gap = abs(a[10] - b[10]) + abs(a[11] - b[11])
-    structure_gap = max(abs(a[i] - b[i]) for i in range(12, 16))
+    torso_color_gap = max(abs(a[i] - b[i]) for i in range(4))
+    local_hist_gap = max(abs(a[i] - b[i]) for i in range(4, 8))
+    profile_gap = max(abs(a[i] - b[i]) for i in range(8, 12))
+    center_gap = abs(a[12] - b[12]) + abs(a[13] - b[13])
+    structure_gap = max(abs(a[i] - b[i]) for i in range(14, 16))
 
     score = sim
-    score -= min(color_gap * 0.35, 0.35)
-    score -= min(profile_gap * 0.20, 0.20)
+    score -= min(torso_color_gap * 0.30, 0.30)
+    score -= min(local_hist_gap * 0.32, 0.32)
+    score -= min(profile_gap * 0.18, 0.18)
     score -= min(center_gap * 0.08, 0.08)
     score -= min(structure_gap * 0.12, 0.12)
     score = max(-1.0, min(1.0, score))
@@ -237,15 +240,15 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     The vector intentionally avoids filename or filesystem metadata so that
     person disambiguation depends on what is visible in the image:
 
-    - 6 dims: torso/body-region color signature (mean RGB + std RGB)
+    - 4 dims: torso/body-region color signature (R/G/B mean + saturation)
+    - 4 dims: local torso block color histogram summary
     - 4 dims: luminance layout across vertical body-like regions
     - 2 dims: brightness center-of-mass (x/y)
     - 2 dims: edge density and left/right balance
-    - 2 dims: aspect ratio and contrast strength
 
-    Compared with a full-frame average, the torso-weighted color signature is
-    much more sensitive to clothing differences, which is useful for a cheap
-    local identity heuristic.
+    Compared with a full-frame average, the torso-weighted signature and local
+    torso block summary are more sensitive to clothing-region changes while
+    staying cheap enough for local CPU use.
     """
     try:
         with Image.open(img_path) as img:
@@ -266,7 +269,25 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
         torso = arr
 
     torso_means = torso.mean(axis=(0, 1))
-    torso_stds = torso.std(axis=(0, 1))
+    torso_max = torso.max(axis=2)
+    torso_min = torso.min(axis=2)
+    torso_sat = float((torso_max - torso_min).mean())
+
+    block_rows = np.array_split(torso, 2, axis=0)
+    torso_blocks = []
+    for row in block_rows:
+        cols = np.array_split(row, 2, axis=1)
+        for block in cols:
+            block_rg = block[..., 0] - block[..., 1]
+            block_by = block[..., 2] - (block[..., 0] + block[..., 1]) / 2.0
+            torso_blocks.append(float(block_rg.mean()))
+            torso_blocks.append(float(block_by.mean()))
+    torso_block_summary = [
+        float(np.mean(torso_blocks[0::2])),
+        float(np.std(torso_blocks[0::2])),
+        float(np.mean(torso_blocks[1::2])),
+        float(np.std(torso_blocks[1::2])),
+    ]
 
     vertical_slices = np.array_split(gray, 4, axis=0)
     vertical_profile = [float(s.mean()) for s in vertical_slices]
@@ -281,32 +302,27 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
         center_y = float((gray * y_coords).sum() / (mass * max(h - 1, 1)))
 
     grad_x = np.abs(np.diff(gray, axis=1)).mean() if w > 1 else 0.0
-    grad_y = np.abs(np.diff(gray, axis=0)).mean() if h > 1 else 0.0
-    edge_density = float((grad_x + grad_y) / 2.0)
-
     left_mean = float(gray[:, : w // 2].mean()) if w >= 2 else float(gray.mean())
     right_mean = float(gray[:, w // 2 :].mean()) if w >= 2 else float(gray.mean())
     horizontal_balance = left_mean - right_mean
 
-    aspect_ratio = float(w / max(h, 1))
-    aspect_feature = math.tanh(aspect_ratio - 0.75)
-    contrast_strength = float(gray.std())
-
     raw = [
-        *torso_means.tolist(),
-        *torso_stds.tolist(),
+        float(torso_means[0]),
+        float(torso_means[1]),
+        float(torso_means[2]),
+        torso_sat,
+        *torso_block_summary,
         *vertical_profile,
         center_x,
         center_y,
-        edge_density,
+        float(grad_x),
         horizontal_balance,
-        aspect_feature,
-        contrast_strength,
     ]
 
     centered = []
+    signed_indices = {4, 5, 6, 7, 13, 15}
     for idx, value in enumerate(raw):
-        if idx in {11, 12, 14}:
+        if idx in signed_indices:
             centered.append(float(np.clip(value, -1.0, 1.0)))
         else:
             centered.append(float(np.clip((value - 0.5) * 2.0, -1.0, 1.0)))

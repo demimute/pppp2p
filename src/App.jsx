@@ -9,7 +9,7 @@ import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { useApi } from './hooks/useApi.js';
 
 const STRATEGIES = [
-  { id: 'dual', name: '双保险', desc: 'CLIP ≥ 0.92 且 pHash ≤ 10 + 人物判别', threshold: null },
+  { id: 'dual', name: '双保险', desc: 'CLIP ≥ 0.92 且 pHash ≤ 10 + 人物身份判别与姿态细化', threshold: null },
   { id: 'clip', name: 'CLIP视觉', desc: '基于CLIP ViT-B/32视觉嵌入', threshold: { min: 0.80, max: 0.99, default: 0.93, step: 0.01 } },
   { id: 'phash', name: '感知哈希', desc: '基于pHash感知哈希算法', threshold: { min: 0, max: 20, default: 10, step: 1, unit: 'Hamming距离' } },
   { id: 'filesize', name: '文件大小', desc: '按文件大小完全相同分组', threshold: null },
@@ -50,6 +50,7 @@ function App() {
   const [undoFeedback, setUndoFeedback] = useState(null); // {type: 'error'|'success', message: string}
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [pythonReady, setPythonReady] = useState(false);
+  const [backendState, setBackendState] = useState({ running: false, source: 'unknown', message: '后端状态未知' });
 
   // Compare panel state
   const [comparePanel, setComparePanel] = useState({ open: false, group: null, selectedIndex: 0 });
@@ -72,9 +73,10 @@ function App() {
         return;
       }
 
-      window.electronAPI.onPythonReady(() => {
-        console.log('Python backend ready');
-        setPythonReady(true);
+      window.electronAPI.onPythonReady((payload) => {
+        console.log('Python backend ready', payload);
+        setPythonReady(Boolean(payload?.running ?? true));
+        setBackendState(payload || { running: true, source: 'managed', message: '内置后端已启动' });
       });
 
       window.electronAPI.onMenuSelectFolder(async () => {
@@ -82,6 +84,7 @@ function App() {
       });
 
       const status = await window.electronAPI.getPythonStatus();
+      setBackendState(status || { running: false, source: 'unknown', message: '后端状态未知' });
       if (status?.running) {
         setPythonReady(true);
       }
@@ -419,9 +422,16 @@ function App() {
             <span className="text-white text-lg">🔍</span>
           </div>
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">DedupStudio</h1>
-          {!pythonReady && (
-            <span className="badge badge-warning">后端启动中...</span>
-          )}
+          <span
+            className={`badge ${pythonReady ? (backendState.source === 'external' ? 'badge-warning' : 'badge-success') : 'badge-warning'}`}
+            title={backendState.message}
+          >
+            {pythonReady
+              ? backendState.source === 'external'
+                ? '已接管现有后端'
+                : '内置后端已就绪'
+              : '后端启动中...'}
+          </span>
         </div>
         <button
           onClick={() => setDarkMode(!darkMode)}
@@ -560,7 +570,7 @@ function App() {
             </div>
 
             <p className="mt-3 text-xs text-purple-400 dark:text-purple-500">
-              💡 人物判别引擎在两张图都含人物时判断是否为同一人。不同人时强降分，同一人时结合姿态信号细化判定，避免误合并。
+              💡 人物身份判别引擎在两张图都含人物时判断是否为同一人。不同人时强降分，同一人时结合姿态信号细化判定，避免误合并。
             </p>
           </div>
         )}
@@ -597,8 +607,12 @@ function App() {
           )}
         </div>
 
+        <div className={`mt-6 rounded-xl border px-4 py-3 text-sm ${pythonReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'}`}>
+          后端状态：{backendState.message}
+        </div>
+
         {(analysisMessage || error) && (
-          <div className={`mt-6 rounded-xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300'}`}>
+          <div className={`mt-4 rounded-xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300'}`}>
             {error || analysisMessage}
           </div>
         )}
@@ -624,7 +638,7 @@ function App() {
                 <div className="text-xs text-gray-500 dark:text-gray-400">建议策略</div>
                 <div className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
                   {selectedStrategy === 'dual' && personEnhance.enabled
-                    ? `双保险+人物判别`
+                    ? '双保险 + 人物身份判别'
                     : (intelligence.suggested_strategy || 'clip')}
                 </div>
               </div>
@@ -633,7 +647,7 @@ function App() {
                 <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                   {selectedStrategy === 'dual'
                     ? personEnhance.enabled
-                      ? `双保险 + 人物判别（抑制强度 ${Math.round(personEnhance.weight * 100)}%），CLIP 与 pHash 双阈值同时满足，同时启用人物身份甄别与姿态细化。`
+                      ? `双保险 + 人物身份判别（抑制强度 ${Math.round(personEnhance.weight * 100)}%），CLIP 与 pHash 双阈值同时满足，同时启用人物身份甄别与姿态细化。`
                       : '双保险要求 CLIP 相似度与 pHash 距离两条阈值同时满足，适合对误删更敏感的场景。'
                     : intelligence.reason}
                 </div>

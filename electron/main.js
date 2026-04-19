@@ -7,8 +7,20 @@ const { spawn } = require('child_process');
 let mainWindow;
 let pythonProcess = null;
 let backendManaged = false;
+let backendStatus = {
+  running: false,
+  source: 'unknown',
+  message: '后端状态未知',
+};
 const BACKEND_PORT = 18765;
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
+
+function updateBackendStatus(patch = {}) {
+  backendStatus = { ...backendStatus, ...patch };
+  if (mainWindow) {
+    mainWindow.webContents.send('python-ready', backendStatus);
+  }
+}
 
 async function loadRenderer(window) {
   const devServerReady = isDev && await isPortOpen(5173);
@@ -131,9 +143,11 @@ async function startPythonBackend() {
   const existing = await isPortOpen(BACKEND_PORT);
   if (existing) {
     backendManaged = false;
-    if (mainWindow) {
-      mainWindow.webContents.send('python-ready');
-    }
+    updateBackendStatus({
+      running: true,
+      source: 'external',
+      message: '已接管现有后端服务',
+    });
     return;
   }
 
@@ -148,7 +162,11 @@ async function startPythonBackend() {
     const msg = data.toString().trim();
     console.log('[Python stdout]:', msg);
     if (mainWindow && msg.includes('Running on')) {
-      mainWindow.webContents.send('python-ready');
+      updateBackendStatus({
+        running: true,
+        source: 'managed',
+        message: '内置后端已启动',
+      });
     }
   });
 
@@ -158,22 +176,43 @@ async function startPythonBackend() {
 
     if (message.includes('Address already in use')) {
       const existingBackend = await isPortOpen(BACKEND_PORT);
-      if (existingBackend && mainWindow) {
-        mainWindow.webContents.send('python-ready');
+      if (existingBackend) {
+        updateBackendStatus({
+          running: true,
+          source: 'external',
+          message: '检测到现有后端，已直接复用',
+        });
+        return;
       }
     }
+
+    updateBackendStatus({
+      running: false,
+      source: 'error',
+      message: message.trim() || '后端启动失败',
+    });
   });
 
   pythonProcess.on('error', (err) => {
     console.error('[Python process error]:', err);
     pythonProcess = null;
     backendManaged = false;
+    updateBackendStatus({
+      running: false,
+      source: 'error',
+      message: err.message || '后端进程启动失败',
+    });
   });
 
   pythonProcess.on('exit', (code) => {
     console.log(`[Python process exited with code ${code}]`);
     pythonProcess = null;
     backendManaged = false;
+    updateBackendStatus({
+      running: false,
+      source: code === 0 ? 'stopped' : 'error',
+      message: code === 0 ? '内置后端已停止' : `后端进程已退出（code ${code}）`,
+    });
   });
 }
 
@@ -205,7 +244,13 @@ ipcMain.handle('kill-backend', async () => {
 
 ipcMain.handle('python-status', async () => {
   const externalBackend = await isPortOpen(BACKEND_PORT);
-  return { running: pythonProcess !== null || externalBackend };
+  if (pythonProcess !== null) {
+    return { running: true, source: 'managed', message: '内置后端运行中' };
+  }
+  if (externalBackend) {
+    return { running: true, source: 'external', message: '现有后端服务可用' };
+  }
+  return backendStatus;
 });
 
 ipcMain.handle('api-call', async (_event, { method, endpoint, body }) => {

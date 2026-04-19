@@ -30,17 +30,27 @@
 - `python3.11 -m pytest tests/backend/test_persona.py` → `28 passed`
 - `npx playwright test tests/e2e/person-enhance.spec.js tests/e2e/persona-enhancement.spec.js --reporter=line` → `9 passed`
 - `npx playwright test tests/e2e/workflow.spec.js tests/e2e/compare-shortcuts.spec.js tests/e2e/multi-group-history.spec.js tests/e2e/repeated-undo.spec.js --reporter=line` → `4 passed`
+- `npx playwright test tests/e2e/acceptance-smoke.spec.js --reporter=line` → `1 passed`
 
 ## 当前可手测路径
 
 1. 启动 DedupStudio Electron。
-2. 选择包含以下混合场景的目录：
+2. 确认首页已显示后端状态条，且能区分“内置后端已就绪”或“已接管现有后端”。
+3. 选择包含以下混合场景的目录：
    - 同一人物、相近姿态
    - 不同人物、相近姿态
    - 普通重复图
-3. 选择“双保险”。
-4. 观察人物判别卡、分组结果、ComparePanel、执行移除、撤销、历史记录。
-5. 重点确认“同位置不同人物相似姿态”不会再被误并。
+4. 选择“双保险”。
+5. 观察人物判别卡、分组结果、ComparePanel、执行移除、撤销、历史记录。
+6. 重点确认“同位置不同人物相似姿态”不会再被误并。
+
+## 新增验收 smoke
+
+- 新增 `tests/e2e/acceptance-smoke.spec.js`，验证当前运行态下的近真实流程：
+  - 页面可见后端状态
+  - 手动加载临时目录
+  - 双保险策略保持启用
+  - 可完成一次分析并得到稳定结果文案
 
 ## 剩余风险
 

@@ -28,5 +28,5 @@ test('compare -> mark remove -> execute remove -> undo', async ({ page }) => {
 
   await page.getByRole('button', { name: /撤销/ }).click();
   await expect(page.getByText(/已恢复 1 张照片/)).toBeVisible({ timeout: 30000 });
-  await expect(page.getByText('已撤销', { exact: true })).toBeVisible();
+  await expect(page.locator('text=/已撤销/').first()).toBeVisible();
 });

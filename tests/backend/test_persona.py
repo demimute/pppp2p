@@ -152,11 +152,12 @@ class TestClassifyPersonIdentity:
     def test_same_layout_but_different_color_is_not_same_person(self, tmp_path):
         from PIL import Image, ImageDraw
 
-        def make_person(path, shirt):
+        def make_person(path, shirt, accent=(0, 0, 0)):
             img = Image.new('RGB', (160, 240), (238, 232, 225))
             d = ImageDraw.Draw(img)
             d.ellipse((52, 20, 108, 76), fill=(235, 200, 170), outline=(80, 60, 50), width=2)
             d.rounded_rectangle((44, 76, 116, 166), radius=16, fill=shirt, outline=(50, 50, 50), width=2)
+            d.rectangle((60, 92, 100, 128), fill=accent)
             d.rectangle((26, 84, 44, 150), fill=(235, 200, 170))
             d.rectangle((116, 84, 134, 150), fill=(235, 200, 170))
             d.rectangle((54, 166, 78, 228), fill=(45, 45, 70))
@@ -165,8 +166,8 @@ class TestClassifyPersonIdentity:
 
         red = tmp_path / 'red.png'
         blue = tmp_path / 'blue.png'
-        make_person(red, (220, 60, 60))
-        make_person(blue, (60, 90, 220))
+        make_person(red, (220, 60, 60), accent=(120, 15, 15))
+        make_person(blue, (60, 90, 220), accent=(15, 15, 120))
 
         v_red = _extract_persona_vec('red.png', red)
         v_blue = _extract_persona_vec('blue.png', blue)

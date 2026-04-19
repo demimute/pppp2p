@@ -240,15 +240,14 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     The vector intentionally avoids filename or filesystem metadata so that
     person disambiguation depends on what is visible in the image:
 
-    - 4 dims: torso/body-region color signature (R/G/B mean + saturation)
-    - 4 dims: local torso block color histogram summary
+    - 8 dims: approximate foreground/body mask cues
     - 4 dims: luminance layout across vertical body-like regions
     - 2 dims: brightness center-of-mass (x/y)
     - 2 dims: edge density and left/right balance
 
-    Compared with a full-frame average, the torso-weighted signature and local
-    torso block summary are more sensitive to clothing-region changes while
-    staying cheap enough for local CPU use.
+    The foreground mask is a cheap approximation built from center bias,
+    saturation, and edge response. It gives the lightweight identity heuristic
+    a crude "subject region" without adding heavy segmentation dependencies.
     """
     try:
         with Image.open(img_path) as img:
@@ -264,30 +263,48 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     h, w, _ = arr.shape
     gray = arr.mean(axis=2)
 
-    torso = arr[int(h * 0.28):int(h * 0.78), int(w * 0.22):int(w * 0.78), :]
+    torso = arr[int(h * 0.24):int(h * 0.82), int(w * 0.18):int(w * 0.82), :]
     if torso.size == 0:
         torso = arr
 
-    torso_means = torso.mean(axis=(0, 1))
+    th, tw, _ = torso.shape
+    torso_gray = torso.mean(axis=2)
     torso_max = torso.max(axis=2)
     torso_min = torso.min(axis=2)
-    torso_sat = float((torso_max - torso_min).mean())
+    torso_sat = torso_max - torso_min
+    edge_x = np.abs(np.diff(torso_gray, axis=1, prepend=torso_gray[:, :1]))
+    edge_y = np.abs(np.diff(torso_gray, axis=0, prepend=torso_gray[:1, :]))
+    edge_mag = (edge_x + edge_y) * 0.5
 
-    block_rows = np.array_split(torso, 2, axis=0)
-    torso_blocks = []
-    for row in block_rows:
-        cols = np.array_split(row, 2, axis=1)
-        for block in cols:
-            block_rg = block[..., 0] - block[..., 1]
-            block_by = block[..., 2] - (block[..., 0] + block[..., 1]) / 2.0
-            torso_blocks.append(float(block_rg.mean()))
-            torso_blocks.append(float(block_by.mean()))
-    torso_block_summary = [
-        float(np.mean(torso_blocks[0::2])),
-        float(np.std(torso_blocks[0::2])),
-        float(np.mean(torso_blocks[1::2])),
-        float(np.std(torso_blocks[1::2])),
-    ]
+    yy, xx = np.mgrid[0:th, 0:tw]
+    cy = (th - 1) / 2.0 if th > 1 else 0.0
+    cx = (tw - 1) / 2.0 if tw > 1 else 0.0
+    center_bias = np.exp(-(((yy - cy) / max(th * 0.38, 1.0)) ** 2 + ((xx - cx) / max(tw * 0.32, 1.0)) ** 2))
+
+    sat_norm = torso_sat / max(float(torso_sat.max()), 1e-6)
+    edge_norm = edge_mag / max(float(edge_mag.max()), 1e-6)
+    mask = 0.50 * center_bias + 0.30 * sat_norm + 0.20 * edge_norm
+    mask = np.clip(mask, 0.0, 1.0)
+    mask_sum = float(mask.sum())
+    if mask_sum <= 1e-6:
+        mask = np.ones((th, tw), dtype=np.float32)
+        mask_sum = float(mask.sum())
+
+    fg_r = float((torso[..., 0] * mask).sum() / mask_sum)
+    fg_g = float((torso[..., 1] * mask).sum() / mask_sum)
+    fg_b = float((torso[..., 2] * mask).sum() / mask_sum)
+    fg_sat = float((torso_sat * mask).sum() / mask_sum)
+
+    hard_mask = mask > 0.55
+    coverage = float(hard_mask.mean())
+    upper = hard_mask[: max(th // 2, 1), :]
+    lower = hard_mask[max(th // 2, 1):, :] if th > 1 else hard_mask
+    left = hard_mask[:, : max(tw // 2, 1)]
+    right = hard_mask[:, max(tw // 2, 1):] if tw > 1 else hard_mask
+    upper_cov = float(upper.mean()) if upper.size else coverage
+    lower_cov = float(lower.mean()) if lower.size else coverage
+    left_cov = float(left.mean()) if left.size else coverage
+    right_cov = float(right.mean()) if right.size else coverage
 
     vertical_slices = np.array_split(gray, 4, axis=0)
     vertical_profile = [float(s.mean()) for s in vertical_slices]
@@ -307,11 +324,14 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     horizontal_balance = left_mean - right_mean
 
     raw = [
-        float(torso_means[0]),
-        float(torso_means[1]),
-        float(torso_means[2]),
-        torso_sat,
-        *torso_block_summary,
+        fg_r,
+        fg_g,
+        fg_b,
+        fg_sat,
+        coverage,
+        upper_cov - lower_cov,
+        left_cov - right_cov,
+        float((edge_norm * mask).sum() / mask_sum),
         *vertical_profile,
         center_x,
         center_y,
@@ -320,7 +340,7 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     ]
 
     centered = []
-    signed_indices = {4, 5, 6, 7, 13, 15}
+    signed_indices = {5, 6, 7, 13, 15}
     for idx, value in enumerate(raw):
         if idx in signed_indices:
             centered.append(float(np.clip(value, -1.0, 1.0)))

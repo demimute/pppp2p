@@ -15,11 +15,14 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
   const getSimilarityLabel = (member, strategy) => {
     if (strategy === 'clip') {
       return `${(member.similarity * 100).toFixed(1)}%`;
-    } else if (strategy === 'phash') {
-      return `距离 ${member.hamming_distance ?? 0}`;
-    } else {
-      return `${(member.similarity * 100).toFixed(1)}%`;
     }
+    if (strategy === 'phash') {
+      return `距离 ${member.hamming_distance ?? 0}`;
+    }
+    if (strategy === 'dual') {
+      return `${(member.similarity * 100).toFixed(1)}% · 距离 ${member.hamming_distance ?? 0}`;
+    }
+    return `${(member.similarity * 100).toFixed(1)}%`;
   };
 
   const formatFileSize = (bytes) => {
@@ -28,9 +31,17 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const visibleMembers = group.members.filter((member) => member?.path || member?.name);
+  const visibleMembers = group.members.filter((member) => {
+    if (!member?.name) return false;
+    if (member.removed || member.hidden) return false;
+    return !!(member.path || member.name);
+  });
 
-  const toRemoveCount = visibleMembers.filter(m => m.to_remove).length;
+  if (visibleMembers.length < 2) {
+    return null;
+  }
+
+  const toRemoveCount = visibleMembers.filter((member) => member.to_remove).length;
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -123,6 +134,13 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
                   {isMarkedForRemoval && (
                     <div className="absolute top-1 right-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded font-medium">
                       ×
+                    </div>
+                  )}
+
+                  {/* Persona similarity badge - shown when dual/persona enhancement returns data */}
+                  {member.persona_similarity !== undefined && member.persona_similarity > 0 && (
+                    <div className="absolute bottom-1 left-1 bg-purple-500 text-white text-xs px-1 py-0.5 rounded font-medium opacity-80">
+                      🧑 {Math.round(member.persona_similarity * 100)}%
                     </div>
                   )}
                 </div>

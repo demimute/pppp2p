@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback } from 'react';
+import { toPreviewUrl } from '../utils/fileUrl.js';
 
 function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, onSkip, onNavigate }) {
   // Keyboard navigation
@@ -117,7 +118,7 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                   <span className="text-4xl opacity-30">🖼️</span>
                 </div>
                 <img
-                  src={`file://${selectedImage?.path || selectedImage?.name}`}
+                  src={toPreviewUrl(selectedImage?.path || selectedImage?.name)}
                   alt="Selected"
                   className="absolute inset-0 w-full h-full object-contain"
                   onError={(e) => { e.target.style.opacity = '0'; }}
@@ -150,7 +151,7 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                   <span className="text-4xl opacity-30">✓</span>
                 </div>
                 <img
-                  src={`file://${winnerImage?.path || winnerImage?.name}`}
+                  src={toPreviewUrl(winnerImage?.path || winnerImage?.name)}
                   alt="Winner"
                   className="absolute inset-0 w-full h-full object-contain"
                   onError={(e) => { e.target.style.opacity = '0'; }}
@@ -191,6 +192,14 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                   {getSizeDeltaText(selectedImage?.size, winnerImage?.size)}
                 </p>
               </div>
+              {selectedImage?.persona_similarity !== undefined && selectedImage.persona_similarity > 0 && (
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">人物增强分</span>
+                  <p className="font-semibold text-purple-600 dark:text-purple-400">
+                    🧑 {Math.round(selectedImage.persona_similarity * 100)}%
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

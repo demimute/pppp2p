@@ -9,10 +9,10 @@ import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { useApi } from './hooks/useApi.js';
 
 const STRATEGIES = [
+  { id: 'dual', name: '双保险', desc: 'CLIP ≥ 0.92 且 pHash ≤ 10 + 人物增强', threshold: null },
   { id: 'clip', name: 'CLIP视觉', desc: '基于CLIP ViT-B/32视觉嵌入', threshold: { min: 0.80, max: 0.99, default: 0.93, step: 0.01 } },
   { id: 'phash', name: '感知哈希', desc: '基于pHash感知哈希算法', threshold: { min: 0, max: 20, default: 10, step: 1, unit: 'Hamming距离' } },
   { id: 'filesize', name: '文件大小', desc: '按文件大小完全相同分组', threshold: null },
-  { id: 'dual', name: '双保险', desc: 'CLIP ≥ 0.92 且 pHash ≤ 10', threshold: null },
 ];
 
 function App() {
@@ -35,7 +35,7 @@ function App() {
   // App state
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [imageCount, setImageCount] = useState(0);
-  const [selectedStrategy, setSelectedStrategy] = useState('clip');
+  const [selectedStrategy, setSelectedStrategy] = useState('dual');
   const [threshold, setThreshold] = useState(0.93);
   const [dualThreshold, setDualThreshold] = useState({ clip: 0.92, phash: 10 });
   const [groups, setGroups] = useState([]);
@@ -44,6 +44,8 @@ function App() {
   useEffect(() => { groupsRef.current = groups; }, [groups]);
   const [stats, setStats] = useState({ total_groups: 0, to_remove: 0, to_keep: 0 });
   const [intelligence, setIntelligence] = useState(null);
+  // Person enhancement for dual strategy: { enabled: boolean, weight: number 0-1 }
+  const [personEnhance, setPersonEnhance] = useState({ enabled: true, weight: 0.5 });
   const [analysisMessage, setAnalysisMessage] = useState('');
   const [undoFeedback, setUndoFeedback] = useState(null); // {type: 'error'|'success', message: string}
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -166,12 +168,25 @@ function App() {
         await post('/api/hash', { folder: selectedFolder, images });
       }
 
+      const personaWeight = Number(personEnhance.weight ?? 0.5);
+      const baseClipWeight = 0.5;
+      const basePhashWeight = 0.5;
+      const fusionWeights = selectedStrategy === 'dual'
+        ? {
+            clip: Number((baseClipWeight * (1 - personaWeight * 0.4)).toFixed(3)),
+            phash: Number((basePhashWeight * (1 - personaWeight * 0.2)).toFixed(3)),
+            persona: Number((0.1 + personaWeight * 0.5).toFixed(3)),
+          }
+        : undefined;
+
       const result = await post('/api/groups', {
         folder: selectedFolder,
         strategy: selectedStrategy,
         threshold: selectedStrategy === 'dual' ? thresholdValue.clip : thresholdValue,
         clip_threshold: selectedStrategy === 'dual' ? thresholdValue.clip : undefined,
         phash_threshold: selectedStrategy === 'dual' ? thresholdValue.phash : undefined,
+        enhanced_persona: selectedStrategy === 'dual' ? personEnhance.enabled : undefined,
+        fusion_weights: fusionWeights,
         loose_threshold: 0.85,
       });
 
@@ -472,6 +487,68 @@ function App() {
           />
         )}
 
+        {/* Person Enhancement Controls - shown only for dual strategy */}
+        {selectedStrategy === 'dual' && (
+          <div className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-xl p-5 border border-purple-200 dark:border-purple-800">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                  🧑 人物增强
+                </h3>
+                <p className="text-xs text-purple-500 dark:text-purple-400 mt-1">
+                  优先保留或移除包含人物的相似组中的照片
+                </p>
+              </div>
+              <button
+                onClick={() => setPersonEnhance(prev => ({ ...prev, enabled: !prev.enabled }))}
+                className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+                  personEnhance.enabled ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+                aria-pressed={personEnhance.enabled}
+                data-testid="person-enhance-toggle"
+              >
+                <span
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
+                    personEnhance.enabled ? 'translate-x-7' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Weight slider - always visible when enabled */}
+            <div className={personEnhance.enabled ? '' : 'opacity-50 pointer-events-none'}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-purple-600 dark:text-purple-300">权重调节</span>
+                <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
+                  {personEnhance.weight < 0.5 ? '偏向保留人物' : personEnhance.weight > 0.5 ? '偏向移除人物' : '均衡'}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={personEnhance.weight}
+                onChange={(e) => setPersonEnhance(prev => ({ ...prev, weight: parseFloat(e.target.value) }))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, #a855f7 0%, #6366f1 50%, #8b5cf6 100%)`,
+                }}
+              />
+              <div className="flex justify-between text-xs text-purple-400 mt-1">
+                <span>保留人物</span>
+                <span>均衡</span>
+                <span>移除人物</span>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-purple-400 dark:text-purple-500">
+              💡 人物增强根据 CLIP 视觉特征中的语义人物信息，对包含人物的照片在分组时给予额外权重。
+              权重越高，人物相关照片越容易被保留（或移除）。
+            </p>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex gap-3 mt-6">
           <button
@@ -529,13 +606,19 @@ function App() {
               </div>
               <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
                 <div className="text-xs text-gray-500 dark:text-gray-400">建议策略</div>
-                <div className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{intelligence.suggested_strategy || 'clip'}</div>
+                <div className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
+                  {selectedStrategy === 'dual' && personEnhance.enabled
+                    ? `双保险+人物增强`
+                    : (intelligence.suggested_strategy || 'clip')}
+                </div>
               </div>
               <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
                 <div className="text-xs text-gray-500 dark:text-gray-400">推荐原因</div>
                 <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                   {selectedStrategy === 'dual'
-                    ? '双保险要求 CLIP 相似度与 pHash 距离两条阈值同时满足，适合对误删更敏感的场景。'
+                    ? personEnhance.enabled
+                      ? `双保险 + 人物增强（权重 ${Math.round(personEnhance.weight * 100)}%），CLIP 与 pHash 双阈值同时满足，同时考虑人物语义权重。`
+                      : '双保险要求 CLIP 相似度与 pHash 距离两条阈值同时满足，适合对误删更敏感的场景。'
                     : intelligence.reason}
                 </div>
               </div>

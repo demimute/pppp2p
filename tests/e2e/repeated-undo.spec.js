@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { loadAndAnalyze, waitForAnalysisSettled } = require('./helpers');
 
 const SOURCE_DIR = '/tmp/dedup-test';
 
@@ -25,11 +26,7 @@ function resetTestDir(testDir, dedupDir) {
 }
 
 async function runAnalysis(page, testDir) {
-  await page.goto('/');
-  await page.getByPlaceholder(/输入文件夹路径/).fill(testDir);
-  await page.getByRole('button', { name: '加载路径' }).click();
-  await page.getByRole('button', { name: /开始分析/ }).click();
-  await expect(page.getByText(/已找到|没有发现符合当前策略的相似组/)).toBeVisible({ timeout: 30000 });
+  await loadAndAnalyze(page, testDir);
 }
 
 async function removeMarked(page) {
@@ -71,7 +68,7 @@ test('repeated remove and undo keep history stack consistent', async ({ page }, 
   await expect(page.getByText(/已恢复/)).toBeVisible({ timeout: 30000 });
 
   await page.getByRole('button', { name: /开始分析/ }).click();
-  await expect(page.getByText(/已找到|没有发现符合当前策略的相似组/)).toBeVisible({ timeout: 30000 });
+  await waitForAnalysisSettled(page);
 
   await removeMarked(page);
   await expect(page.getByText(/已移除/)).toBeVisible({ timeout: 30000 });

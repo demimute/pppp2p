@@ -1,14 +1,9 @@
 const { test, expect } = require('@playwright/test');
+const { openFirstComparison } = require('./helpers');
 
 async function openComparison(page) {
-  await page.goto('/');
-  await page.getByPlaceholder(/输入文件夹路径/).fill('/tmp/dedup-test');
-  await page.getByRole('button', { name: '加载路径' }).click();
-  await page.getByRole('button', { name: /开始分析/ }).click();
-  await expect(page.getByText(/已找到 1 组相似照片/)).toBeVisible({ timeout: 30000 });
-  await page.getByRole('button', { name: /^img1\.png, 相似度 100\.0%$/ }).click();
+  await openFirstComparison(page, '/tmp/dedup-test');
   const panelHeading = page.getByRole('heading', { name: '对比视图' });
-  await expect(panelHeading).toBeVisible();
   await panelHeading.click();
 }
 
@@ -31,7 +26,7 @@ test('compare panel keyboard shortcuts work end-to-end', async ({ page }) => {
   await page.keyboard.press('s');
   await expect(page.getByRole('heading', { name: '对比视图' })).toBeHidden();
 
-  await page.getByRole('button', { name: /^img1\.png, 相似度 100\.0%$/ }).click();
+  await page.locator('[aria-label*="相似度"]').first().click();
   const reopenedHeading = page.getByRole('heading', { name: '对比视图' });
   await expect(reopenedHeading).toBeVisible();
   await reopenedHeading.click();

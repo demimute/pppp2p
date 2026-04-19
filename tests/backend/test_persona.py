@@ -48,28 +48,53 @@ def test_persona_similarity_empty_vectors():
     assert persona_similarity([1.0], []) == 0.0
 
 
-def test_persona_vector_has_16_dims():
-    from pathlib import Path
-    vec = _extract_persona_vec('test.jpg', Path('/tmp/test.jpg'))
+def test_persona_vector_has_16_dims(tmp_path):
+    from PIL import Image
+
+    img_path = tmp_path / 'test.jpg'
+    Image.new('RGB', (24, 32), color=(128, 128, 128)).save(img_path)
+    vec = _extract_persona_vec('test.jpg', img_path)
     assert len(vec) == 16
 
 
-def test_persona_vector_same_name_gives_same_vector():
+def test_persona_vector_missing_file_returns_empty():
     from pathlib import Path
-    v1 = _extract_persona_vec('alice_001.jpg', Path('/tmp/alice_001.jpg'))
-    v2 = _extract_persona_vec('alice_001.jpg', Path('/tmp/alice_001.jpg'))
+    vec = _extract_persona_vec('missing.jpg', Path('/tmp/does-not-exist.jpg'))
+    assert vec == []
+
+
+def test_persona_vector_same_image_content_is_stable(tmp_path):
+    from PIL import Image
+
+    img_path = tmp_path / 'alice_001.jpg'
+    Image.new('RGB', (24, 32), color=(120, 90, 60)).save(img_path)
+
+    v1 = _extract_persona_vec('alice_001.jpg', img_path)
+    v2 = _extract_persona_vec('alice_001.jpg', img_path)
     assert v1 == v2
+    assert len(v1) == 16
 
 
-def test_persona_vector_different_names_give_different_vectors():
-    from pathlib import Path
-    v1 = _extract_persona_vec('alice_001.jpg', Path('/tmp/alice_001.jpg'))
-    v2 = _extract_persona_vec('bob_001.jpg', Path('/tmp/bob_001.jpg'))
+def test_persona_vector_different_image_content_gives_different_vectors(tmp_path):
+    from PIL import Image
+
+    img_a = tmp_path / 'alice_001.jpg'
+    img_b = tmp_path / 'bob_001.jpg'
+    Image.new('RGB', (24, 32), color=(220, 30, 30)).save(img_a)
+    Image.new('RGB', (24, 32), color=(30, 30, 220)).save(img_b)
+
+    v1 = _extract_persona_vec('alice_001.jpg', img_a)
+    v2 = _extract_persona_vec('bob_001.jpg', img_b)
     assert v1 != v2
 
 
-def test_compute_persona_features_returns_all_images():
-    feats = compute_persona_features(['a.jpg', 'b.jpg', 'c.jpg'], '/tmp')
+def test_compute_persona_features_returns_all_images(tmp_path):
+    from PIL import Image
+
+    for name, color in [('a.jpg', (255, 0, 0)), ('b.jpg', (0, 255, 0)), ('c.jpg', (0, 0, 255))]:
+        Image.new('RGB', (24, 32), color=color).save(tmp_path / name)
+
+    feats = compute_persona_features(['a.jpg', 'b.jpg', 'c.jpg'], str(tmp_path))
     assert set(feats.keys()) == {'a.jpg', 'b.jpg', 'c.jpg'}
     for v in feats.values():
         assert len(v) == 16

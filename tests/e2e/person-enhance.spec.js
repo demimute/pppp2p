@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-test.describe('Person Enhancement UI', () => {
+test.describe('Person Disambiguation UI', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     // Select dual strategy by default
@@ -12,13 +12,13 @@ test.describe('Person Enhancement UI', () => {
     await expect(dualButton).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('person enhancement controls visible for dual strategy', async ({ page }) => {
-    // The person enhancement section should be visible
-    await expect(page.getByText('🧑 人物增强')).toBeVisible();
-    await expect(page.getByText(/优先保留或移除包含人物的相似组/)).toBeVisible();
+  test('person disambiguation controls visible for dual strategy', async ({ page }) => {
+    // The person disambiguation section should be visible
+    await expect(page.getByText('🧑 人物判别')).toBeVisible();
+    await expect(page.getByText(/减少不同人物误判为同组/)).toBeVisible();
   });
 
-  test('person enhancement toggle works', async ({ page }) => {
+  test('person disambiguation toggle works', async ({ page }) => {
     const toggle = page.getByTestId('person-enhance-toggle');
     const initialState = await toggle.getAttribute('aria-pressed');
 
@@ -28,8 +28,8 @@ test.describe('Person Enhancement UI', () => {
     expect(newState).not.toBe(initialState);
   });
 
-  test('person enhancement weight slider is accessible when enabled', async ({ page }) => {
-    // Slider should exist and be interactive
+  test('person disambiguation weight slider is accessible when enabled', async ({ page }) => {
+    // Slider should exist and be interactive (different-person suppression slider)
     const slider = page.locator('input[type="range"]').last();
     await expect(slider).toBeVisible();
 
@@ -41,25 +41,27 @@ test.describe('Person Enhancement UI', () => {
     }
   });
 
-  test('person enhancement disabled state updates toggle state', async ({ page }) => {
-    const enhanceCard = page.locator('div').filter({ has: page.getByText('🧑 人物增强') }).first();
+  test('person disambiguation disabled state updates toggle state', async ({ page }) => {
+    const enhanceCard = page.locator('div').filter({ has: page.getByText('🧑 人物判别') }).first();
     const toggle = page.getByTestId('person-enhance-toggle');
     await toggle.click();
 
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(enhanceCard.getByText('权重调节')).toBeVisible();
+    // Controls should still be visible but dimmed
+    await expect(enhanceCard.getByText('不同人物强抑制')).toBeVisible();
   });
 
-  test('intelligence card label logic is wired for person enhance', async ({ page }) => {
-    const enhanceCard = page.locator('div').filter({ has: page.getByText('🧑 人物增强') }).first();
+  test('intelligence card label reflects person disambiguation', async ({ page }) => {
+    const enhanceCard = page.locator('div').filter({ has: page.getByText('🧑 人物判别') }).first();
     await expect(enhanceCard).toBeVisible();
-    await expect(enhanceCard.getByText('均衡').first()).toBeVisible();
-    await expect(enhanceCard.getByText('保留人物')).toBeVisible();
-    await expect(enhanceCard.getByText('移除人物')).toBeVisible();
+    // New control labels: weak/middle/strong instead of retain/remove/balanced
+    await expect(enhanceCard.getByText('弱').first()).toBeVisible();
+    await expect(enhanceCard.getByText('同人姿态精细判定')).toBeVisible();
   });
 
-  test('strategy description mentions person enhance for dual', async ({ page }) => {
+  test('strategy description reflects person disambiguation for dual', async ({ page }) => {
     const dualCard = page.getByRole('button', { name: /双保险/ });
-    await expect(dualCard).toContainText('人物增强');
+    await expect(dualCard).toContainText('人物身份判别');
+    await expect(dualCard).toContainText('姿态细化');
   });
 });

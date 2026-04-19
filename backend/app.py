@@ -24,6 +24,17 @@ from cache import clear_cache
 from engine.clip_engine import compute_embeddings
 from engine.hash_engine import compute_hashes
 from engine.similarity import find_groups_clip, find_groups_hash
+from engine.persona_engine import (
+    compute_persona_features,
+    persona_similarity,
+    compute_person_disambiguation,
+    classify_person_identity,
+    classify_pose_similarity,
+    IDENTITY_THRESHOLD_SAME,
+    IDENTITY_THRESHOLD_DIFF,
+    IDENTITY_DIFF_PENALTY,
+    POSE_SAME_BOOST,
+)
 from engine.intelligence import analyze_distribution, find_optimal_threshold, estimate_stats, suggest_strategy
 
 app = Flask(__name__)
@@ -34,6 +45,8 @@ CORS(app)
 _embeddings_cache: Dict[str, Dict[str, List[float]]] = {}
 # hashes cache: {folder: {imagename: hash}}
 _hashes_cache: Dict[str, Dict[str, str]] = {}
+# persona features cache: {folder: {imagename: persona_vector}}
+_persona_cache: Dict[str, Dict[str, List[float]]] = {}
 # file sizes: {folder: {imagename: size}}
 _file_sizes: Dict[str, Dict[str, int]] = {}
 # operation history: list of HistoryEntry
@@ -179,6 +192,11 @@ def groups():
         strategy = data.get("strategy", "clip")
         threshold = float(data.get("threshold", 0.93))
         loose_threshold = float(data.get("loose_threshold", 0.85))
+        clip_threshold = float(data.get("clip_threshold", threshold or 0.92))
+        phash_threshold = int(data.get("phash_threshold", 10))
+        # Person disambiguation stays enabled by default for dual.
+        enhanced_persona = data.get("enhanced_persona", True) if strategy == "dual" else False
+        identity_penalty_strength = float(data.get("identity_penalty_strength", 0.5))
 
         if not folder:
             return jsonify({"error": "folder is required"}), 400
@@ -248,9 +266,12 @@ def groups():
                 group_id += 1
 
         elif strategy in {"both", "dual"}:
-            # CLIP + pHash double保险
+            # CLIP + pHash double保险, both thresholds must match.
+            # When enhanced_persona=True: also compute persona features and use them
+            # as a third signal (subject identity) in group formation and filtering.
             embeddings = _embeddings_cache.get(folder, {})
             hashes = _hashes_cache.get(folder, {})
+            persona_feats = _persona_cache.get(folder, {}) if enhanced_persona else {}
             images = list(sizes.keys())
             if not embeddings:
                 embeddings = compute_embeddings(images, folder)
@@ -258,26 +279,65 @@ def groups():
             if not hashes:
                 hashes = compute_hashes(images, folder)
                 _hashes_cache[folder] = hashes
+            if enhanced_persona and not persona_feats:
+                persona_feats = compute_persona_features(images, folder)
+                _persona_cache[folder] = persona_feats
 
-            # Get CLIP groups first
-            clip_groups = find_groups_clip(embeddings, threshold=0.92, loose_threshold=0.85, file_sizes=sizes)
-            # Filter to only those where pHash also matches
+            clip_groups = find_groups_clip(
+                embeddings,
+                threshold=clip_threshold,
+                loose_threshold=min(loose_threshold, clip_threshold),
+                file_sizes=sizes,
+            )
+
             filtered_groups = []
             from engine.similarity import hamming_distance
             for g in clip_groups:
                 winner_hash = hashes.get(g.winner, "")
+                winner_persona = persona_feats.get(g.winner, []) if enhanced_persona else []
                 new_members = []
+
                 for m in g.members:
                     h = hashes.get(m.name, "")
-                    if h and winner_hash:
-                        dist = hamming_distance(winner_hash, h)
-                        if dist <= 10:
-                            # Set hamming_distance on the existing member
-                            m.hamming_distance = dist
-                            new_members.append(m)
+                    dist = hamming_distance(winner_hash, h) if (h and winner_hash) else 999
+
+                    if dist <= phash_threshold:
+                        m.hamming_distance = dist
+
+                        # Phase 1 Person Disambiguation (replaces old persona fusion)
+                        if enhanced_persona and winner_persona:
+                            member_persona = persona_feats.get(m.name, [])
+                            if member_persona:
+                                disambig = compute_person_disambiguation(
+                                    winner_persona, member_persona, m.similarity
+                                )
+                                m.person_identity_state = disambig["person_identity_state"]
+                                m.person_identity_score = disambig["person_identity_score"]
+                                m.pose_state = disambig["pose_state"]
+                                m.pose_similarity = disambig["pose_similarity"]
+                                scaled_adjustment = disambig["person_adjustment"]
+                                if scaled_adjustment < 0:
+                                    scaled_adjustment = round(
+                                        scaled_adjustment * (0.5 + identity_penalty_strength),
+                                        4,
+                                    )
+                                m.person_adjustment = scaled_adjustment
+                                m.decision_reason = disambig["decision_reason"]
+                                # Apply adjustment to base similarity (clip to [0, 1])
+                                adjusted = max(0.0, min(1.0, m.similarity + scaled_adjustment))
+                                m.similarity = round(adjusted, 4)
+                                m.persona_vector = member_persona
+
+                        new_members.append(m)
+
                 if len(new_members) >= 2:
-                    # Update winner_size
                     g.members = new_members
+                    g.persona_enabled = enhanced_persona
+                    total_identity = sum(getattr(m, 'person_identity_score', 0.0) for m in new_members)
+                    g.persona_boost = round(total_identity / len(new_members), 4) if new_members else 0.0
+                    reasons = [getattr(m, 'decision_reason', '') for m in new_members if hasattr(m, 'decision_reason')]
+                    g.group_decision_reason = reasons[0] if reasons else ""
+                    g.group_final_score = round(sum(m.similarity for m in new_members) / len(new_members), 4)
                     filtered_groups.append(g)
             group_list = filtered_groups
 
@@ -311,6 +371,10 @@ def groups():
                     "id": g.id,
                     "winner": g.winner,
                     "winner_size": g.winner_size,
+                    "persona_enabled": g.persona_enabled,
+                    "persona_boost": g.persona_boost,
+                    "group_final_score": getattr(g, 'group_final_score', 0.0),
+                    "group_decision_reason": getattr(g, 'group_decision_reason', ''),
                     "members": [
                         {
                             "name": m.name,
@@ -319,6 +383,14 @@ def groups():
                             "size": sizes.get(m.name, 0),
                             "path": str(Path(folder) / m.name),
                             "hamming_distance": m.hamming_distance,
+                            "persona_similarity": m.persona_similarity,
+                            "persona_vector": m.persona_vector if m.persona_vector else [],
+                            "person_identity_state": getattr(m, 'person_identity_state', 'unavailable'),
+                            "person_identity_score": getattr(m, 'person_identity_score', 0.0),
+                            "pose_state": getattr(m, 'pose_state', 'unavailable'),
+                            "pose_similarity": getattr(m, 'pose_similarity', 0.0),
+                            "person_adjustment": getattr(m, 'person_adjustment', 0.0),
+                            "decision_reason": getattr(m, 'decision_reason', ''),
                         }
                         for m in g.members
                     ],
@@ -521,4 +593,11 @@ def api_clear_cache():
 
 
 if __name__ == "__main__":
-    app.run(host="localhost", port=5000, debug=True)
+    port = int(os.environ.get("DEDUP_BACKEND_PORT", "5000"))
+    debug_enabled = os.environ.get("DEDUP_BACKEND_DEBUG", "0") == "1"
+    app.run(
+        host="127.0.0.1",
+        port=port,
+        debug=debug_enabled,
+        use_reloader=debug_enabled,
+    )

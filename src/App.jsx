@@ -9,7 +9,7 @@ import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { useApi } from './hooks/useApi.js';
 
 const STRATEGIES = [
-  { id: 'dual', name: '双保险', desc: 'CLIP ≥ 0.92 且 pHash ≤ 10 + 人物增强', threshold: null },
+  { id: 'dual', name: '双保险', desc: 'CLIP ≥ 0.92 且 pHash ≤ 10 + 人物判别', threshold: null },
   { id: 'clip', name: 'CLIP视觉', desc: '基于CLIP ViT-B/32视觉嵌入', threshold: { min: 0.80, max: 0.99, default: 0.93, step: 0.01 } },
   { id: 'phash', name: '感知哈希', desc: '基于pHash感知哈希算法', threshold: { min: 0, max: 20, default: 10, step: 1, unit: 'Hamming距离' } },
   { id: 'filesize', name: '文件大小', desc: '按文件大小完全相同分组', threshold: null },
@@ -168,17 +168,6 @@ function App() {
         await post('/api/hash', { folder: selectedFolder, images });
       }
 
-      const personaWeight = Number(personEnhance.weight ?? 0.5);
-      const baseClipWeight = 0.5;
-      const basePhashWeight = 0.5;
-      const fusionWeights = selectedStrategy === 'dual'
-        ? {
-            clip: Number((baseClipWeight * (1 - personaWeight * 0.4)).toFixed(3)),
-            phash: Number((basePhashWeight * (1 - personaWeight * 0.2)).toFixed(3)),
-            persona: Number((0.1 + personaWeight * 0.5).toFixed(3)),
-          }
-        : undefined;
-
       const result = await post('/api/groups', {
         folder: selectedFolder,
         strategy: selectedStrategy,
@@ -186,7 +175,9 @@ function App() {
         clip_threshold: selectedStrategy === 'dual' ? thresholdValue.clip : undefined,
         phash_threshold: selectedStrategy === 'dual' ? thresholdValue.phash : undefined,
         enhanced_persona: selectedStrategy === 'dual' ? personEnhance.enabled : undefined,
-        fusion_weights: fusionWeights,
+        identity_penalty_strength: selectedStrategy === 'dual'
+          ? Number(personEnhance.weight ?? 0.5)
+          : undefined,
         loose_threshold: 0.85,
       });
 
@@ -487,16 +478,16 @@ function App() {
           />
         )}
 
-        {/* Person Enhancement Controls - shown only for dual strategy */}
+        {/* Person Disambiguation Controls - shown only for dual strategy */}
         {selectedStrategy === 'dual' && (
           <div className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-xl p-5 border border-purple-200 dark:border-purple-800">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                  🧑 人物增强
+                  🧑 人物判别
                 </h3>
                 <p className="text-xs text-purple-500 dark:text-purple-400 mt-1">
-                  优先保留或移除包含人物的相似组中的照片
+                  减少不同人物误判为同组 &bull; 同人后再结合动作姿态细化判定
                 </p>
               </div>
               <button
@@ -515,36 +506,61 @@ function App() {
               </button>
             </div>
 
-            {/* Weight slider - always visible when enabled */}
+            {/* Two-phase controls - only when enabled */}
             <div className={personEnhance.enabled ? '' : 'opacity-50 pointer-events-none'}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-purple-600 dark:text-purple-300">权重调节</span>
-                <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
-                  {personEnhance.weight < 0.5 ? '偏向保留人物' : personEnhance.weight > 0.5 ? '偏向移除人物' : '均衡'}
-                </span>
+
+              {/* Different-person suppression */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-purple-600 dark:text-purple-300">不同人物强抑制</span>
+                  <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
+                    {personEnhance.weight < 0.3 ? '弱' : personEnhance.weight < 0.7 ? '中' : '强'}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={personEnhance.weight}
+                  onChange={(e) => setPersonEnhance(prev => ({ ...prev, weight: parseFloat(e.target.value) }))}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #a855f7 0%, #6366f1 50%, #8b5cf6 100%)`,
+                  }}
+                  aria-label="不同人物强抑制强度"
+                />
+                <div className="flex justify-between text-xs text-purple-400 mt-1">
+                  <span>弱</span>
+                  <span>中</span>
+                  <span>强</span>
+                </div>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={personEnhance.weight}
-                onChange={(e) => setPersonEnhance(prev => ({ ...prev, weight: parseFloat(e.target.value) }))}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, #a855f7 0%, #6366f1 50%, #8b5cf6 100%)`,
-                }}
-              />
-              <div className="flex justify-between text-xs text-purple-400 mt-1">
-                <span>保留人物</span>
-                <span>均衡</span>
-                <span>移除人物</span>
+
+              {/* Same-person pose refinement (placeholder — backend Phase 2) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-purple-600 dark:text-purple-300">同人姿态精细判定</span>
+                  <span className="text-xs text-purple-400">
+                    {personEnhance.enabled ? '同人时参考' : '需开启判别'}
+                  </span>
+                </div>
+                <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full"
+                    style={{ width: '40%' }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-purple-400 mt-1">
+                  <span>粗判</span>
+                  <span>精细</span>
+                </div>
               </div>
+
             </div>
 
             <p className="mt-3 text-xs text-purple-400 dark:text-purple-500">
-              💡 人物增强根据 CLIP 视觉特征中的语义人物信息，对包含人物的照片在分组时给予额外权重。
-              权重越高，人物相关照片越容易被保留（或移除）。
+              💡 人物判别引擎在两张图都含人物时判断是否为同一人。不同人时强降分，同一人时结合姿态信号细化判定，避免误合并。
             </p>
           </div>
         )}
@@ -608,7 +624,7 @@ function App() {
                 <div className="text-xs text-gray-500 dark:text-gray-400">建议策略</div>
                 <div className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
                   {selectedStrategy === 'dual' && personEnhance.enabled
-                    ? `双保险+人物增强`
+                    ? `双保险+人物判别`
                     : (intelligence.suggested_strategy || 'clip')}
                 </div>
               </div>
@@ -617,7 +633,7 @@ function App() {
                 <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                   {selectedStrategy === 'dual'
                     ? personEnhance.enabled
-                      ? `双保险 + 人物增强（权重 ${Math.round(personEnhance.weight * 100)}%），CLIP 与 pHash 双阈值同时满足，同时考虑人物语义权重。`
+                      ? `双保险 + 人物判别（抑制强度 ${Math.round(personEnhance.weight * 100)}%），CLIP 与 pHash 双阈值同时满足，同时启用人物身份甄别与姿态细化。`
                       : '双保险要求 CLIP 相似度与 pHash 距离两条阈值同时满足，适合对误删更敏感的场景。'
                     : intelligence.reason}
                 </div>

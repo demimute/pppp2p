@@ -67,6 +67,9 @@ test.describe('Persona Enhancement (Dual Strategy)', () => {
     const dualCard = page.getByRole('button', { name: /双保险/ });
     await dualCard.click();
     await expect(dualCard).toHaveAttribute('aria-pressed', 'true');
+    // Verify disambiguation text is shown in strategy card
+    await expect(dualCard).toContainText('人物身份判别');
+    await expect(dualCard).toContainText('姿态细化');
 
     // Run analysis
     await page.getByRole('button', { name: '开始分析' }).click();

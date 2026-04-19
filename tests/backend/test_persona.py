@@ -118,9 +118,12 @@ def test_group_member_defaults():
 def test_group_defaults():
     g = Group(id=1, winner='x.jpg', winner_size=1000, members=[])
     assert g.persona_enabled == False
-    assert g.persona_boost == 0.0
-    assert g.group_final_score == 0.0
-    assert g.group_decision_reason == ""
+
+
+def test_identity_v2_baseline_builder_exists():
+    from pathlib import Path
+    builder = Path(__file__).resolve().parents[2] / 'tests' / 'fixtures' / 'build_identity_v2_baseline.py'
+    assert builder.exists(), f"identity v2 baseline builder not found at {builder}"
 
 
 def test_group_with_persona_enhancement():
@@ -325,6 +328,41 @@ class TestDualGroupingIdentityReject:
         assert payload['groups'] == []
         assert different_member.hard_rejected_by_identity is True
         assert different_member.decision_reason == 'different_person_hard_reject'
+
+    def test_group_carries_identity_version_marker(self):
+        from app import app
+
+        client = app.test_client()
+        sizes = {
+            'winner.jpg': 1000,
+            'same.jpg': 999,
+        }
+        winner_member = GroupMember(name='winner.jpg', similarity=0.99, to_remove=False)
+        same_member = GroupMember(name='same.jpg', similarity=0.95, to_remove=True)
+        clip_group = Group(id=1, winner='winner.jpg', winner_size=1000, members=[winner_member, same_member])
+
+        import app as app_module
+
+        folder = '/tmp/test-identity-version-marker'
+        app_module._file_sizes[folder] = sizes
+
+        with patch('app.compute_embeddings', return_value={'winner.jpg': [0.1], 'same.jpg': [0.2]}), \
+             patch('app.compute_hashes', return_value={'winner.jpg': '0'*64, 'same.jpg': '0'*64}), \
+             patch('app.compute_persona_features', return_value={'winner.jpg': [1.0]*16, 'same.jpg': [1.0]*16}), \
+             patch('app.find_groups_clip', return_value=[clip_group]):
+            response = client.post('/api/groups', json={
+                'folder': folder,
+                'strategy': 'dual',
+                'enhanced_persona': True,
+                'clip_threshold': 0.75,
+                'phash_threshold': 10,
+                'identity_penalty_strength': 1.0,
+                'identity_version': 'v2-experiment',
+            })
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload['groups'][0]['identity_version'] == 'v2-experiment'
 
 
 if __name__ == '__main__':

@@ -197,6 +197,7 @@ def groups():
         # Person disambiguation stays enabled by default for dual.
         enhanced_persona = data.get("enhanced_persona", True) if strategy == "dual" else False
         identity_penalty_strength = float(data.get("identity_penalty_strength", 0.5))
+        identity_version = str(data.get("identity_version", "v1")).strip() or "v1"
 
         if not folder:
             return jsonify({"error": "folder is required"}), 400
@@ -342,6 +343,7 @@ def groups():
                 if len(new_members) >= 2:
                     g.members = new_members
                     g.persona_enabled = enhanced_persona
+                    g.identity_version = identity_version
                     total_identity = sum(getattr(m, 'person_identity_score', 0.0) for m in new_members)
                     g.persona_boost = round(total_identity / len(new_members), 4) if new_members else 0.0
                     reasons = [getattr(m, 'decision_reason', '') for m in new_members if hasattr(m, 'decision_reason')]
@@ -382,6 +384,7 @@ def groups():
                     "winner_size": g.winner_size,
                     "persona_enabled": g.persona_enabled,
                     "persona_boost": g.persona_boost,
+                    "identity_version": getattr(g, 'identity_version', 'v1'),
                     "group_final_score": getattr(g, 'group_final_score', 0.0),
                     "group_decision_reason": getattr(g, 'group_decision_reason', ''),
                     "members": [

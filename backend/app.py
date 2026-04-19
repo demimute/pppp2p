@@ -301,34 +301,43 @@ def groups():
                     h = hashes.get(m.name, "")
                     dist = hamming_distance(winner_hash, h) if (h and winner_hash) else 999
 
-                    if dist <= phash_threshold:
-                        m.hamming_distance = dist
+                    if dist > phash_threshold:
+                        continue
 
-                        # Phase 1 Person Disambiguation (replaces old persona fusion)
-                        if enhanced_persona and winner_persona:
-                            member_persona = persona_feats.get(m.name, [])
-                            if member_persona:
-                                disambig = compute_person_disambiguation(
-                                    winner_persona, member_persona, m.similarity
+                    m.hamming_distance = dist
+                    m.hard_rejected_by_identity = False
+
+                    # Phase 1 Person Disambiguation (replaces old persona fusion)
+                    if enhanced_persona and winner_persona:
+                        member_persona = persona_feats.get(m.name, [])
+                        if member_persona:
+                            disambig = compute_person_disambiguation(
+                                winner_persona, member_persona, m.similarity
+                            )
+                            m.person_identity_state = disambig["person_identity_state"]
+                            m.person_identity_score = disambig["person_identity_score"]
+                            m.pose_state = disambig["pose_state"]
+                            m.pose_similarity = disambig["pose_similarity"]
+                            scaled_adjustment = disambig["person_adjustment"]
+                            if scaled_adjustment < 0:
+                                scaled_adjustment = round(
+                                    scaled_adjustment * (0.5 + identity_penalty_strength),
+                                    4,
                                 )
-                                m.person_identity_state = disambig["person_identity_state"]
-                                m.person_identity_score = disambig["person_identity_score"]
-                                m.pose_state = disambig["pose_state"]
-                                m.pose_similarity = disambig["pose_similarity"]
-                                scaled_adjustment = disambig["person_adjustment"]
-                                if scaled_adjustment < 0:
-                                    scaled_adjustment = round(
-                                        scaled_adjustment * (0.5 + identity_penalty_strength),
-                                        4,
-                                    )
-                                m.person_adjustment = scaled_adjustment
-                                m.decision_reason = disambig["decision_reason"]
-                                # Apply adjustment to base similarity (clip to [0, 1])
-                                adjusted = max(0.0, min(1.0, m.similarity + scaled_adjustment))
-                                m.similarity = round(adjusted, 4)
-                                m.persona_vector = member_persona
+                            m.person_adjustment = scaled_adjustment
+                            m.decision_reason = disambig["decision_reason"]
+                            m.persona_vector = member_persona
 
-                        new_members.append(m)
+                            if m.person_identity_state == "different":
+                                m.hard_rejected_by_identity = True
+                                m.decision_reason = "different_person_hard_reject"
+                                continue
+
+                            # Apply adjustment to base similarity (clip to [0, 1])
+                            adjusted = max(0.0, min(1.0, m.similarity + scaled_adjustment))
+                            m.similarity = round(adjusted, 4)
+
+                    new_members.append(m)
 
                 if len(new_members) >= 2:
                     g.members = new_members
@@ -391,6 +400,7 @@ def groups():
                             "pose_similarity": getattr(m, 'pose_similarity', 0.0),
                             "person_adjustment": getattr(m, 'person_adjustment', 0.0),
                             "decision_reason": getattr(m, 'decision_reason', ''),
+                            "hard_rejected_by_identity": getattr(m, 'hard_rejected_by_identity', False),
                         }
                         for m in g.members
                     ],

@@ -48,7 +48,7 @@ test.describe('Person Disambiguation UI', () => {
 
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
     // Controls should still be visible but dimmed
-    await expect(enhanceCard.getByText('不同人物强抑制')).toBeVisible();
+    await expect(enhanceCard.getByText('不同人物强抑制', { exact: true })).toBeVisible();
   });
 
   test('pose refinement is shown as built-in guidance instead of a separate slider', async ({ page }) => {

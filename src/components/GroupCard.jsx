@@ -137,10 +137,21 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
                     </div>
                   )}
 
-                  {/* Persona similarity badge - shown when dual/persona enhancement returns data */}
-                  {member.persona_similarity !== undefined && member.persona_similarity > 0 && (
-                    <div className="absolute bottom-1 left-1 bg-purple-500 text-white text-xs px-1 py-0.5 rounded font-medium opacity-80">
-                      🧑 {Math.round(member.persona_similarity * 100)}%
+                  {/* Person identity state badge — new disambiguation model */}
+                  {(member.person_identity_state !== undefined || member.persona_similarity !== undefined) && (
+                    <div className={`absolute bottom-1 left-1 text-xs px-1 py-0.5 rounded font-medium ${
+                      member.person_identity_state === 'same'
+                        ? 'bg-green-500 text-white'
+                        : member.person_identity_state === 'different'
+                        ? 'bg-red-500 text-white'
+                        : member.person_identity_state === 'uncertain'
+                        ? 'bg-yellow-500 text-white'
+                        : 'bg-gray-400 text-white'
+                    }`}>
+                      {member.person_identity_state === 'same' ? '✓ 同人' :
+                       member.person_identity_state === 'different' ? '✗ 异人' :
+                       member.person_identity_state === 'uncertain' ? '? 待定' :
+                       member.persona_similarity !== undefined ? `🧑 ${Math.round(member.persona_similarity * 100)}%` : ''}
                     </div>
                   )}
                 </div>

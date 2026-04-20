@@ -1,55 +1,66 @@
 {
-  "main_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线闭环",
+  "main_goal": "在 DedupStudio 中落地默认开启的人物增强识别，并开放所有用户可调权重的 dual 增强方案",
   "active_tasks": [],
   "queued_tasks": [
     {
-      "id": "task-003",
-      "title": "验证 phash/dual/intelligence UI 展示与后端返回一致",
-      "module": "intelligence",
-      "owner": null,
+      "id": "task-203",
+      "title": "前端实现 dual 默认开启人物增强与权重调节 UI",
+      "module": "frontend",
+      "owner": "frontend-owner",
       "status": "queued",
       "depends_on": [
-        "task-001"
+        "task-201"
       ]
     },
     {
-      "id": "task-004",
-      "title": "验证后端 move/undo/history API 与前端交互一致",
-      "module": "backend",
-      "owner": null,
+      "id": "task-204",
+      "title": "联调 dual 人物增强识别链路并补充 E2E 回归",
+      "module": "intelligence",
+      "owner": "intelligence-owner",
       "status": "queued",
       "depends_on": [
-        "task-002"
+        "task-202",
+        "task-203"
+      ]
+    },
+    {
+      "id": "task-205",
+      "title": "收口修复遗留缺陷并完成最终测试验收",
+      "module": "frontend",
+      "owner": "orchestrator",
+      "status": "queued",
+      "depends_on": [
+        "task-204"
       ]
     }
   ],
   "blocked_tasks": [],
   "completed_tasks": [
     {
-      "id": "task-001",
-      "title": "验证目录选择 -> 扫描 -> 分析链路",
+      "id": "task-201",
+      "title": "实现任务系统并发写修复后的验证与任务流恢复",
       "module": "frontend",
       "owner": "frontend-owner",
       "status": "done",
       "depends_on": [],
-      "completed_at": "2026-04-18T04:51:18.853Z",
+      "started_at": "2026-04-19T02:45:41.748Z",
+      "completed_at": "2026-04-19T02:45:51.835Z",
       "result": {
-        "summary": "目录选择 -> 扫描 -> 分析链路已验证通过，缓存命名空间冲突已修复"
+        "summary": "任务系统并发写问题已修复，验证通过，开发编排可恢复"
       }
     },
     {
-      "id": "task-002",
-      "title": "验证 ComparePanel -> 移除 -> Undo 链路",
-      "module": "frontend",
-      "owner": "frontend-owner",
+      "id": "task-202",
+      "title": "后端实现 dual 人物增强数据通路与可选权重参数",
+      "module": "backend",
+      "owner": "backend-owner",
       "status": "done",
       "depends_on": [
-        "task-001"
+        "task-201"
       ],
-      "started_at": "2026-04-18T04:57:38.794Z",
-      "completed_at": "2026-04-18T05:02:06.022Z",
+      "completed_at": "2026-04-19T02:54:16.867Z",
       "result": {
-        "summary": "ComparePanel -> 移除 -> Undo 链路验证通过，stats/undo 两处 bug 已修复"
+        "summary": "后端 dual 人物增强接口已实现，/api/groups 支持 enhanced_persona 与 fusion_weights，并返回 persona 字段供前端联调"
       }
     }
   ]

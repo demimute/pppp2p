@@ -41,13 +41,17 @@ async function markTaskStarted(taskId, owner = 'orchestrator') {
 
 async function markTaskCompleted(taskId, result = {}) {
   const plan = await loadPlan();
-  const task = plan.active_tasks.find((item) => item.id === taskId);
-  if (!task) throw new Error(`active task not found: ${taskId}`);
+  const activeTask = plan.active_tasks.find((item) => item.id === taskId);
+  const queuedTask = plan.queued_tasks.find((item) => item.id === taskId);
+  const task = activeTask || queuedTask;
+  if (!task) throw new Error(`task not found in active/queued lists: ${taskId}`);
 
   plan.active_tasks = plan.active_tasks.filter((item) => item.id !== taskId);
+  plan.queued_tasks = plan.queued_tasks.filter((item) => item.id !== taskId);
+  plan.completed_tasks = plan.completed_tasks.filter((item) => item.id !== taskId);
   plan.completed_tasks.push({ ...task, status: 'done', completed_at: nowIso(), result });
   await savePlan(plan);
-  await appendEvent({ type: 'task_completed', task_id: taskId, result });
+  await appendEvent({ type: 'task_completed', task_id: taskId, result, repaired_from: activeTask ? 'active' : 'queued' });
   return plan;
 }
 

@@ -67,8 +67,9 @@
   - `same_a.png` 与 `same_a_copy.png` 仍稳定判为 `same`。
   - `same_pose_diff_person.png` 对 `same_a.png` 已可判为 `different`。
   - `same_pose_diff_person.png` 对 `diff_green.png` 已从误判 `same` 进一步收敛到 `different`。
-  - 在继续加入局部 torso 块颜色摘要后，`same_pose_diff_person.png` 对 `diff_blue.png` 仍会误判为 `same`，说明当前轻量签名对“高度同模板、主体局部差异极小”的异人场景已接近能力上限。
-- 结论：轻量 identity v1 已明显优于上一版纯全局签名，足以作为 `dual` 链路中的弱 identity signal 使用；但若要继续提升极难样本的异人判别能力，下一步需要引入更像主体分割、关键点或局部语义区域的信号，而不是继续堆简单统计特征。
+  - 在继续加入局部 torso 块颜色摘要后，`same_pose_diff_person.png` 对 `diff_blue.png` 仍会误判为 `same`。
+  - 进一步加入“主体遮罩近似”（中心偏置 + 饱和度 + 边缘联合权重的 soft foreground mask）后，`same_pose_diff_person.png` 对 `diff_blue.png` 依旧为 `same`（pair score `0.9925`），而 `same_a` / `diff_green` 的异人压制结果维持有效。
+- 结论：轻量 identity v1 到“主体遮罩近似”这一层后，已经基本摸到纯 Pillow + 统计特征路线的上限。它仍适合作为 `dual` 链路中的弱 identity signal，但若要继续提升极难样本的异人判别能力，下一步需要引入更像主体分割、关键点或局部语义区域的信号，而不是继续堆简单统计特征。
 
 ## 剩余风险
 
@@ -76,4 +77,4 @@
 - `src/App.jsx` 内部仍有一部分旧短文案，需要与 `StrategySelector.jsx` 保持完全一致。
 - 后端状态虽然已可从主进程读取，但前端展示仍需保持简洁，避免把低层 stderr 原文直接铺给用户。
 - 轻量 image-content signature 目前更像“人物外观近似信号”，还不是严格的人脸身份模型；后续仍需要真实目录样本校准阈值。
-- 下一步若继续推进，应优先引入主体遮罩近似、关键点/骨架、或更稳定的局部语义区域特征，而不是继续单纯调整阈值或堆叠全局统计量。
+- 下一步若继续推进，应直接考虑关键点/骨架、主体分割近似后的局部语义区域，或轻量 ReID/embedding 方案，而不是继续单纯调整阈值或堆叠全局统计量。

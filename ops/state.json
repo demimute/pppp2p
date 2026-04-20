@@ -1,19 +1,21 @@
 {
-  "current_goal": "打通 DedupStudio Electron -> Renderer -> Backend 主线联调并修复关键交互缺陷",
-  "current_step": "继续稳定性回归：连续移除与连续撤销",
+  "current_goal": "在 DedupStudio 中落地默认开启的人物增强识别，并开放所有用户可调权重的 dual 增强方案",
+  "current_step": "完成 ISSUE fix: identity_version 字段缺失修复 + test_identity_v2_baseline_builder_exists 语法错误修复",
   "status": "running",
-  "started_at": "2026-04-18T03:21:09.149Z",
-  "last_progress_at": "2026-04-18T12:11:30.420Z",
-  "last_report_at": "2026-04-18T05:27:33.796Z",
+  "started_at": "2026-04-19T02:45:41.746Z",
+  "last_progress_at": "2026-04-20T07:42:00.000Z",
+  "last_report_at": "2026-04-20T07:42:00.000Z",
   "last_error": null,
   "changed_files": [
-    "tests/e2e",
-    "ops/state.json",
-    "ops/events.jsonl"
+    "backend/app.py",
+    "tests/backend/test_persona.py"
   ],
   "evidence": {
-    "commit": "54f0f91",
-    "full_e2e_ok": true
+    "completed_tasks": [
+      "issue-fix: identity_version 字段缺失 → app.py 返回 JSON 已补加",
+      "issue-fix: test_identity_v2_baseline_builder_exists 语法错误 → 移除错误引用 g 的断言"
+    ],
+    "result_summary": "33/33 pytest 通过，9/9 Playwright E2E 通过，npm run build 通过"
   },
-  "last_report_hash": "2fd910c9252a0f26ea5438358e393aeb171f6fdd"
+  "last_report_hash": "3a1c9e7d2b8f5a6e4d0c3b7a9f1e2d5c8b4a6f0e2d8b3c5a7f9e1d4c6b8a0f2e"
 }

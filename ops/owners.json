@@ -1,14 +1,17 @@
 {
   "backend": {
-    "owner": "backend-agent",
+    "owner": "backend-owner",
+    "runtime": "subagent-run",
     "areas": ["backend/app.py", "backend/models.py", "backend/engine"]
   },
   "frontend": {
-    "owner": "frontend-agent",
+    "owner": "frontend-owner",
+    "runtime": "subagent-run",
     "areas": ["src", "electron"]
   },
   "intelligence": {
-    "owner": "intelligence-agent",
+    "owner": "intelligence-owner",
+    "runtime": "subagent-run",
     "areas": ["backend/engine/intelligence.py", "src/App.jsx"]
   }
 }

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -28,7 +29,8 @@ async function readJson(filePath, fallback) {
 }
 
 async function writeJson(filePath, value) {
-  const tempPath = `${filePath}.tmp`;
+  await ensureOpsDir();
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`);
   await fs.rename(tempPath, filePath);
 }
@@ -42,6 +44,7 @@ async function loadState() {
     started_at: null,
     last_progress_at: null,
     last_report_at: null,
+    last_report_hash: null,
     last_error: null,
     changed_files: [],
     evidence: {},
@@ -148,6 +151,10 @@ async function releaseReportLock() {
   }
 }
 
+function hashReport(report) {
+  return crypto.createHash('sha1').update(report).digest('hex');
+}
+
 async function maybeReport({ thresholdMinutes = 10, emit = console.log } = {}) {
   const lockAcquired = await acquireReportLock();
   if (!lockAcquired) {
@@ -164,9 +171,16 @@ async function maybeReport({ thresholdMinutes = 10, emit = console.log } = {}) {
     }
 
     const report = renderReport(state);
+    const reportHash = hashReport(report);
+
+    if (state.last_report_hash && state.last_report_hash === reportHash) {
+      await appendEvent({ type: 'report_skipped_duplicate', threshold_minutes: thresholdMinutes, report_hash: reportHash });
+      return { skipped: true, reason: 'duplicate', state, report };
+    }
+
     emit(report);
-    const next = await updateState({ last_report_at: nowIso() });
-    await appendEvent({ type: 'report_sent', threshold_minutes: thresholdMinutes });
+    const next = await updateState({ last_report_at: nowIso(), last_report_hash: reportHash });
+    await appendEvent({ type: 'report_sent', threshold_minutes: thresholdMinutes, report_hash: reportHash });
     return { skipped: false, state: next, report };
   } finally {
     await releaseReportLock();
@@ -181,6 +195,7 @@ module.exports = {
   loadState,
   maybeReport,
   nowIso,
+  hashReport,
   readJson,
   recordFailure,
   recordProgress,

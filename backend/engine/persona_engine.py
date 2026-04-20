@@ -5,9 +5,22 @@ subject-identity cues from image content itself. The goal is not full face
 recognition, but a cheap local signal that can help distinguish obviously
 different people without adding heavy model dependencies.
 
-Current implementation is a lightweight image-signature extractor built on
-Pillow and simple numeric features. It avoids filename-derived heuristics so
-that identity decisions are tied to the actual image content.
+=== Identity v2 Key Improvements over v1 ===
+
+Problem: v1 uses global torso statistics that wash out local identity
+differences. Two people using the same pose template produce nearly
+identical torso color averages, causing false same-person classifications.
+
+Solution: v2 adds explicit local region features:
+- Head/skin region independently detected and compared
+- Torso split into 2x2 sub-blocks (upper-left/right, lower-left/right)
+  to capture clothing and accessory differences that are localized
+- Foreground mask quality signal to detect when the "person region"
+  is too ambiguous to be useful
+
+The feature vector grows to 24 dims but the interface stays the same,
+and classify_person_identity uses the v2 structure-aware features to
+make better decisions on same-template/different-person cases.
 """
 
 import sys
@@ -102,11 +115,20 @@ def persona_similarity(a: List[float], b: List[float]) -> float:
 def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float]:
     """Classify whether two persona vectors belong to the same person.
 
-    The lightweight v1 path is intentionally stricter than raw cosine
-    similarity alone. We combine overall similarity with targeted checks for
-    torso color drift, local histogram drift, layout drift, and structural
-    differences so that "same composition, different outfit" does not get
-    over-accepted as the same person.
+    v2 feature structure (24 dims):
+    - 0-3:   torso global color (R, G, B, Saturation)             [4]
+    - 4-6:   head skin (brightness, sat, coverage)                [3]
+    - 7-10:  torso 2x2 block luminance (UL, UR, LL, LR)           [4]
+    - 11:    torso block color variance                           [1]
+    - 12:    head-to-torso brightness gap                         [1]
+    - 13-16: torso mask coverage stats                           [4]
+    - 17-20: luminance vertical profile                           [4]
+    - 21-22: center of mass (x, y)                               [2]
+    - 23:    edge density                                         [1]
+
+    The v2 classifier focuses on identity-critical dimensions:
+    head-skin tone (4-6) and torso block luminances (7-10), since these
+    are the most discriminative for same-template/different-person cases.
 
     Returns:
         (state, score) where state ∈ {same, different, uncertain, unavailable}
@@ -123,18 +145,38 @@ def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float
 
     sim = persona_similarity(a, b)
 
-    torso_color_gap = max(abs(a[i] - b[i]) for i in range(4))
-    local_hist_gap = max(abs(a[i] - b[i]) for i in range(4, 8))
-    profile_gap = max(abs(a[i] - b[i]) for i in range(8, 12))
-    center_gap = abs(a[12] - b[12]) + abs(a[13] - b[13])
-    structure_gap = max(abs(a[i] - b[i]) for i in range(14, 16))
+    # Head-skin gap: dims 4-6 (brightness, sat, coverage) - most important for identity
+    head_brightness_gap = abs(a[4] - b[4])
+    head_sat_gap = abs(a[5] - b[5])
+    head_coverage_gap = abs(a[6] - b[6])
 
+    # Torso block luminance gap: dims 7-10 - key for same-template/different-person
+    torso_ul_gap = abs(a[7] - b[7])
+    torso_ur_gap = abs(a[8] - b[8])
+    torso_ll_gap = abs(a[9] - b[9])
+    torso_lr_gap = abs(a[10] - b[10])
+    torso_block_gap = max(torso_ul_gap, torso_ur_gap, torso_ll_gap, torso_lr_gap)
+
+    # Torso global color gap: dims 0-3 (R, G, B, sat)
+    torso_color_gap = max(abs(a[i] - b[i]) for i in range(4))
+
+    # Head-torso gap change: dim 12
+    head_torso_gap_diff = abs(abs(a[12]) - abs(b[12]))
+
+    # Apply v2-specific penalties focused on discriminative signals
     score = sim
-    score -= min(torso_color_gap * 0.30, 0.30)
-    score -= min(local_hist_gap * 0.32, 0.32)
-    score -= min(profile_gap * 0.18, 0.18)
-    score -= min(center_gap * 0.08, 0.08)
-    score -= min(structure_gap * 0.12, 0.12)
+    # Head-skin: primary identity signal (skin tone is hard to to spoof)
+    score -= min(head_brightness_gap * 0.25, 0.25)
+    score -= min(head_sat_gap * 0.20, 0.20)
+    score -= min(head_coverage_gap * 0.15, 0.15)
+    # Torso blocks: per-region clothing/accessory differences
+    score -= min(torso_block_gap * 0.30, 0.30)
+    # Torso global color: strong signal for same-template/different-person
+    # (e.g. red shirt vs purple shirt = different person even if same pose)
+    score -= min(torso_color_gap * 0.40, 0.40)
+    # Head-torso gap change
+    score -= min(head_torso_gap_diff * 0.10, 0.10)
+
     score = max(-1.0, min(1.0, score))
 
     if score >= IDENTITY_THRESHOLD_SAME:
@@ -235,19 +277,24 @@ def compute_person_disambiguation(
 # ---------------------------------------------------------------------------
 
 def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
-    """Produce a 16-D lightweight image-content signature.
+    """Produce a 24-D lightweight image-content signature (v2).
 
-    The vector intentionally avoids filename or filesystem metadata so that
-    person disambiguation depends on what is visible in the image:
+    v2 improves on v1 by adding explicit local region features so that
+    same-template/different-person images (e.g. same pose, different person)
+    produce discriminably different vectors even when their global torso
+    color averages are nearly identical.
 
-    - 8 dims: approximate foreground/body mask cues
-    - 4 dims: luminance layout across vertical body-like regions
-    - 2 dims: brightness center-of-mass (x/y)
-    - 2 dims: edge density and left/right balance
-
-    The foreground mask is a cheap approximation built from center bias,
-    saturation, and edge response. It gives the lightweight identity heuristic
-    a crude "subject region" without adding heavy segmentation dependencies.
+    24-dim layout:
+    - Dims 0-3:  foreground torso global color (R, G, B, Saturation)     [4]
+    - Dims 4-6:  head/skin region (brightness, sat, skin_coverage)         [3]
+    - Dims 7-10: torso 2x2 block luminance (UL, UR, LL, LR)              [4]
+    - Dim  11:   torso block color variance (intra-block spread)          [1]
+    - Dim  12:   head-to-torso brightness gap                             [1]
+    - Dims 13-16: torso mask coverage stats                              [4]
+    - Dims 17-20: luminance vertical profile (4 slices)                  [4]
+    - Dims 21-22: brightness center-of-mass (x, y)                      [2]
+    - Dim  23:   edge density                                            [1]
+    Total: 24 dims
     """
     try:
         with Image.open(img_path) as img:
@@ -263,6 +310,20 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     h, w, _ = arr.shape
     gray = arr.mean(axis=2)
 
+    # --- Head region (skin tone detection) ---
+    head_top = int(h * 0.05)
+    head_bot = int(h * 0.32)
+    head_left = int(w * 0.20)
+    head_right = int(w * 0.80)
+    head_region = arr[head_top:head_bot, head_left:head_right, :]
+    head_gray = head_region.mean(axis=2) if head_region.size > 0 else gray[:int(h*0.3), :]
+    head_sat_img = (head_region.max(axis=2) - head_region.min(axis=2)) if head_region.size > 0 else gray[:int(h*0.3), :] * 0
+    skin_brightness = float(head_gray.mean()) if head_gray.size > 0 else 0.5
+    skin_sat = float(head_sat_img.mean()) if head_sat_img.size > 0 else 0.0
+    skin_like = (head_sat_img < 0.12) & (head_gray > 0.35) & (head_gray < 0.88)
+    skin_coverage = float(skin_like.mean()) if skin_like.size > 0 else 0.0
+
+    # --- Torso region ---
     torso = arr[int(h * 0.24):int(h * 0.82), int(w * 0.18):int(w * 0.82), :]
     if torso.size == 0:
         torso = arr
@@ -295,6 +356,26 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
     fg_b = float((torso[..., 2] * mask).sum() / mask_sum)
     fg_sat = float((torso_sat * mask).sum() / mask_sum)
 
+    # --- 2x2 torso block luminance (key v2 addition for local discrimination) ---
+    mid_h = max(th // 2, 1)
+    mid_w = max(tw // 2, 1)
+    ul_lum = float(torso[:mid_h, :mid_w, :].mean()) if torso[:mid_h, :mid_w, :].size > 0 else 0.5
+    ur_lum = float(torso[:mid_h, mid_w:, :].mean()) if torso[:mid_h, mid_w:, :].size > 0 else 0.5
+    ll_lum = float(torso[mid_h:, :mid_w, :].mean()) if torso[mid_h:, :mid_w, :].size > 0 else 0.5
+    lr_lum = float(torso[mid_h:, mid_w:, :].mean()) if torso[mid_h:, mid_w:, :].size > 0 else 0.5
+
+    # Intra-torso color variance: std of per-pixel RGB deviations from block means
+    block_means = np.full((th, tw, 3), 0.5, dtype=np.float32)
+    block_means[:mid_h, :mid_w, :] = ul_lum
+    block_means[:mid_h, mid_w:, :] = ur_lum
+    block_means[mid_h:, :mid_w, :] = ll_lum
+    block_means[mid_h:, mid_w:, :] = lr_lum
+    torso_color_var = float(((torso - block_means) ** 2).mean())
+
+    # Head-to-torso brightness gap
+    torso_brightness = float(torso_gray.mean()) if torso_gray.size > 0 else 0.5
+    head_torso_gap = skin_brightness - torso_brightness
+
     hard_mask = mask > 0.55
     coverage = float(hard_mask.mean())
     upper = hard_mask[: max(th // 2, 1), :]
@@ -319,28 +400,26 @@ def _extract_persona_vec(img_name: str, img_path: Path) -> List[float]:
         center_y = float((gray * y_coords).sum() / (mass * max(h - 1, 1)))
 
     grad_x = np.abs(np.diff(gray, axis=1)).mean() if w > 1 else 0.0
-    left_mean = float(gray[:, : w // 2].mean()) if w >= 2 else float(gray.mean())
-    right_mean = float(gray[:, w // 2 :].mean()) if w >= 2 else float(gray.mean())
-    horizontal_balance = left_mean - right_mean
 
+    # Build 24-dim vector
+    # Signed dims (keep sign): coverage balance(13,14), vertical(15,16), head-gap(12), torso-var(11)
     raw = [
-        fg_r,
-        fg_g,
-        fg_b,
-        fg_sat,
-        coverage,
-        upper_cov - lower_cov,
-        left_cov - right_cov,
-        float((edge_norm * mask).sum() / mask_sum),
-        *vertical_profile,
-        center_x,
-        center_y,
-        float(grad_x),
-        horizontal_balance,
+        fg_r, fg_g, fg_b, fg_sat,                # 0-3: torso global color
+        skin_brightness, skin_sat, skin_coverage,  # 4-6: head skin
+        ul_lum, ur_lum, ll_lum, lr_lum,           # 7-10: torso 2x2 block luminance
+        torso_color_var,                           # 11: intra-block color variance (signed ok)
+        head_torso_gap,                            # 12: head-torso brightness gap (signed ok)
+        coverage,                                  # 13: coverage
+        upper_cov - lower_cov,                     # 14: vertical coverage balance
+        left_cov - right_cov,                      # 15: horizontal coverage balance
+        float((edge_norm * mask).sum() / mask_sum), # 16: edge density under mask
+        *vertical_profile,                         # 17-20: vertical luminance profile
+        center_x, center_y,                         # 21-22: center of mass
+        float(grad_x),                              # 23: edge density
     ]
 
+    signed_indices = {11, 12, 14, 15, 16, 23}
     centered = []
-    signed_indices = {5, 6, 7, 13, 15}
     for idx, value in enumerate(raw):
         if idx in signed_indices:
             centered.append(float(np.clip(value, -1.0, 1.0)))

@@ -173,7 +173,7 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
 
           {/* Metadata */}
           <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-4">
-            <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-4 gap-4 text-sm">
               <div>
                 <span className="text-gray-500 dark:text-gray-400">相似度</span>
                 <p className="font-semibold text-gray-900 dark:text-white">
@@ -192,12 +192,29 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                   {getSizeDeltaText(selectedImage?.size, winnerImage?.size)}
                 </p>
               </div>
-              {selectedImage?.persona_similarity !== undefined && selectedImage.persona_similarity > 0 && (
+              {/* Person identity state — new disambiguation model */}
+              {(selectedImage?.person_identity_state !== undefined || selectedImage?.persona_similarity !== undefined) && (
                 <div>
-                  <span className="text-gray-500 dark:text-gray-400">人物增强分</span>
-                  <p className="font-semibold text-purple-600 dark:text-purple-400">
-                    🧑 {Math.round(selectedImage.persona_similarity * 100)}%
+                  <span className="text-gray-500 dark:text-gray-400">人物判别</span>
+                  <p className={`font-semibold ${
+                    selectedImage?.person_identity_state === 'same'
+                      ? 'text-green-600 dark:text-green-400'
+                      : selectedImage?.person_identity_state === 'different'
+                      ? 'text-red-600 dark:text-red-400'
+                      : selectedImage?.person_identity_state === 'uncertain'
+                      ? 'text-yellow-600 dark:text-yellow-400'
+                      : 'text-purple-600 dark:text-purple-400'
+                  }`}>
+                    {selectedImage?.person_identity_state === 'same' ? '✓ 同人' :
+                     selectedImage?.person_identity_state === 'different' ? '✗ 异人' :
+                     selectedImage?.person_identity_state === 'uncertain' ? '? 待定' :
+                     selectedImage?.persona_similarity !== undefined ? `🧑 ${Math.round(selectedImage.persona_similarity * 100)}%` : '—'}
                   </p>
+                  {selectedImage?.person_identity_state === 'same' && selectedImage?.pose_similarity !== undefined && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      姿态 {Math.round(selectedImage.pose_similarity * 100)}%
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -54,7 +54,7 @@ def test_persona_vector_has_16_dims(tmp_path):
     img_path = tmp_path / 'test.jpg'
     Image.new('RGB', (24, 32), color=(128, 128, 128)).save(img_path)
     vec = _extract_persona_vec('test.jpg', img_path)
-    assert len(vec) == 16
+    assert len(vec) == 24
 
 
 def test_persona_vector_missing_file_returns_empty():
@@ -72,7 +72,7 @@ def test_persona_vector_same_image_content_is_stable(tmp_path):
     v1 = _extract_persona_vec('alice_001.jpg', img_path)
     v2 = _extract_persona_vec('alice_001.jpg', img_path)
     assert v1 == v2
-    assert len(v1) == 16
+    assert len(v1) == 24
 
 
 def test_persona_vector_different_image_content_gives_different_vectors(tmp_path):
@@ -97,7 +97,7 @@ def test_compute_persona_features_returns_all_images(tmp_path):
     feats = compute_persona_features(['a.jpg', 'b.jpg', 'c.jpg'], str(tmp_path))
     assert set(feats.keys()) == {'a.jpg', 'b.jpg', 'c.jpg'}
     for v in feats.values():
-        assert len(v) == 16
+        assert len(v) == 24
 
 
 def test_group_member_defaults():

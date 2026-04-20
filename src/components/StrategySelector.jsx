@@ -19,7 +19,7 @@ function StrategySelector({ strategies, selected, onSelect }) {
     clip: '基于CLIP ViT-B/32视觉嵌入',
     phash: '基于pHash感知哈希算法',
     filesize: '按文件大小完全相同分组',
-    dual: 'CLIP 与 pHash 双阈值同时满足',
+    dual: 'CLIP ≥ 0.92 且 pHash ≤ 10 + 人物身份判别与姿态细化',
   };
 
   return (

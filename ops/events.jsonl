@@ -55,3 +55,17 @@
 {"ts":"2026-04-18T11:56:38.246Z","type":"step_progress","step":"继续稳定性回归：多组与连续操作","changed_files":["tests/e2e","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"7fa4787","keyboard_e2e_ok":true}}
 {"ts":"2026-04-18T12:07:00.604Z","type":"step_progress","step":"排查全量回归中的多组不稳定点","changed_files":["tests/e2e","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"72f5446","multigroup_single_ok":true}}
 {"ts":"2026-04-18T12:11:30.422Z","type":"step_progress","step":"继续稳定性回归：连续移除与连续撤销","changed_files":["tests/e2e","ops/state.json","ops/events.jsonl"],"status":"running","evidence":{"commit":"54f0f91","full_e2e_ok":true}}
+{"ts":"2026-04-19T02:35:39.781Z","type":"goal_set","goal":"为 DedupStudio 设计人物细节增强识别方案，并拆解为可执行的前后端落地任务流"}
+{"ts":"2026-04-19T02:35:39.781Z","type":"task_started","task_id":"task-101","owner":"intelligence-owner"}
+{"ts":"2026-04-19T02:35:39.782Z","type":"orchestrator_started_task","task_id":"task-101","title":"调研人物相似识别增强方案与模型路线","owner":"intelligence-owner","module":"intelligence"}
+{"ts":"2026-04-19T02:38:37.589Z","type":"task_completed","task_id":"task-102","result":{"summary":"后端方案已完成，确认采用可选字段与独立特征缓存扩展现有 API，保持 scan/embed/hash/groups 向后兼容"},"repaired_from":"queued"}
+{"ts":"2026-04-19T02:38:37.591Z","type":"task_complete_processed","task_id":"task-102","next_task":"task-102"}
+{"ts":"2026-04-19T02:45:08.967Z","type":"task_completed","task_id":"task-103","result":{"summary":"并发验证样本二"},"repaired_from":"queued"}
+{"ts":"2026-04-19T02:45:08.968Z","type":"task_complete_processed","task_id":"task-103","next_task":"task-102"}
+{"ts":"2026-04-19T02:45:41.748Z","type":"goal_set","goal":"在 DedupStudio 中落地默认开启的人物增强识别，并开放所有用户可调权重的 dual 增强方案"}
+{"ts":"2026-04-19T02:45:41.749Z","type":"task_started","task_id":"task-201","owner":"frontend-owner"}
+{"ts":"2026-04-19T02:45:41.750Z","type":"orchestrator_started_task","task_id":"task-201","title":"实现任务系统并发写修复后的验证与任务流恢复","owner":"frontend-owner","module":"frontend"}
+{"ts":"2026-04-19T02:45:51.837Z","type":"task_completed","task_id":"task-201","result":{"summary":"任务系统并发写问题已修复，验证通过，开发编排可恢复"},"repaired_from":"active"}
+{"ts":"2026-04-19T02:45:51.837Z","type":"task_complete_processed","task_id":"task-201","next_task":"task-202"}
+{"ts":"2026-04-19T02:54:16.869Z","type":"task_completed","task_id":"task-202","result":{"summary":"后端 dual 人物增强接口已实现，/api/groups 支持 enhanced_persona 与 fusion_weights，并返回 persona 字段供前端联调"},"repaired_from":"queued"}
+{"ts":"2026-04-19T02:54:16.869Z","type":"task_complete_processed","task_id":"task-202","next_task":"task-203"}

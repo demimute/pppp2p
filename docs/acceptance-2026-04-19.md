@@ -52,6 +52,16 @@
   - 双保险策略保持启用
   - 可完成一次分析并得到稳定结果文案
 
+## identity v2 补充进展（2026-04-20）
+
+- 轻量 identity 已从 v1 的 16 维向量升级到 v2 的 24 维向量。
+- v2 新增：头区肤色独立检测、torso 2x2 分块亮度、版本化 persona cache（`persona_v2`）。
+- 新增固定难例基准集回放：`tests/fixtures/build_identity_v2_baseline.py`。
+- 当前 hard-case 结果：
+  - `same_pose_diff_person` vs `same_a`：`same(1.0)` → `different(0.5852)`
+  - `same_pose_diff_person` vs `diff_green`：`uncertain` → `different(0.6871)`
+  - `same_pose_diff_person` vs `diff_blue`：仍为 `uncertain`，按 fallback 处理
+
 ## 轻量 Identity v1 进展
 
 - `backend/engine/persona_engine.py` 已从文件名/文件属性 mock 特征切换为基于真实图像内容的 16 维轻量签名。

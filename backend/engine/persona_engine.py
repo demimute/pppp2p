@@ -39,6 +39,9 @@ from PIL import Image, ImageOps
 from cache import get_cache, set_cache
 
 
+PERSONA_IDENTITY_VERSION = "v2"
+
+
 # ---------------------------------------------------------------------------
 # Thresholds for Phase 1 person disambiguation
 # ---------------------------------------------------------------------------
@@ -74,9 +77,9 @@ def compute_persona_features(images: List[str], folder: str) -> Dict[str, List[f
         folder: Absolute path to the folder.
 
     Returns:
-        Dict mapping image name -> persona feature vector (16 dims).
+        Dict mapping image name -> persona feature vector (24 dims for v2).
         Empty list for images where extraction failed.
-        Results are cached under cache_type="persona".
+        Results are cached under versioned cache_type (e.g. `persona_v2`).
     """
     if not images:
         return {}
@@ -85,8 +88,10 @@ def compute_persona_features(images: List[str], folder: str) -> Dict[str, List[f
     features: Dict[str, List[float]] = {}
     uncached: List[str] = []
 
+    cache_type = f"persona_{PERSONA_IDENTITY_VERSION}"
+
     for img_name in images:
-        cached = get_cache(folder, img_name, cache_type="persona")
+        cached = get_cache(folder, img_name, cache_type=cache_type)
         if cached is not None:
             features[img_name] = cached
         else:
@@ -95,7 +100,7 @@ def compute_persona_features(images: List[str], folder: str) -> Dict[str, List[f
     for img_name in uncached:
         vec = _extract_persona_vec(img_name, folder_path / img_name)
         features[img_name] = vec
-        set_cache(folder, img_name, vec, cache_type="persona")
+        set_cache(folder, img_name, vec, cache_type=cache_type)
 
     return features
 
@@ -222,8 +227,8 @@ def compute_person_disambiguation(
         3. same        → apply pose refinement
 
     Args:
-        winner_persona: 16-dim persona vector of the group winner.
-        member_persona: 16-dim persona vector of the member.
+        winner_persona: persona vector of the group winner.
+        member_persona: persona vector of the member.
         base_similarity: The raw CLIP/pHash base similarity before persona.
 
     Returns:

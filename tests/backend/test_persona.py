@@ -19,7 +19,9 @@ from engine.persona_engine import (
     IDENTITY_THRESHOLD_DIFF,
     IDENTITY_DIFF_PENALTY,
     POSE_SAME_BOOST,
+    PERSONA_IDENTITY_VERSION,
 )
+from cache import clear_cache
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +126,22 @@ def test_identity_v2_baseline_builder_exists():
     from pathlib import Path
     builder = Path(__file__).resolve().parents[2] / 'tests' / 'fixtures' / 'build_identity_v2_baseline.py'
     assert builder.exists(), f"identity v2 baseline builder not found at {builder}"
+
+
+def test_persona_cache_is_versioned_by_identity_generation(tmp_path):
+    from PIL import Image
+    from pathlib import Path
+
+    img_path = tmp_path / 'a.jpg'
+    Image.new('RGB', (24, 32), color=(255, 0, 0)).save(img_path)
+
+    clear_cache(str(tmp_path))
+    feats = compute_persona_features(['a.jpg'], str(tmp_path))
+    assert 'a.jpg' in feats
+
+    cache_dir = Path.home() / '.dedup-studio' / 'cache'
+    persona_cache_files = [p.name for p in cache_dir.glob('*.json') if f'persona_{PERSONA_IDENTITY_VERSION}_a.jpg' in p.name]
+    assert persona_cache_files, 'expected versioned persona cache file to be written'
 
 
 def test_group_with_persona_enhancement():
@@ -289,6 +307,47 @@ class TestIdentityThresholds:
 
     def test_same_threshold_above_different_threshold(self):
         assert IDENTITY_THRESHOLD_SAME > IDENTITY_THRESHOLD_DIFF
+
+
+class TestIdentityV2BaselinePlayback:
+    def test_identity_v2_fixture_baseline_cases(self):
+        from pathlib import Path
+        import subprocess
+
+        builder = Path(__file__).resolve().parents[2] / 'tests' / 'fixtures' / 'build_identity_v2_baseline.py'
+        baseline_dir = Path('/tmp/dedup-real-handtest-v1')
+        subprocess.run(['python3.11', str(builder)], check=True)
+        clear_cache(str(baseline_dir))
+
+        images = [
+            'same_a.png',
+            'same_a_copy.png',
+            'same_b.png',
+            'same_pose_diff_person.png',
+            'diff_green.png',
+            'diff_blue.png',
+        ]
+        feats = compute_persona_features(images, str(baseline_dir))
+
+        same_state, same_score = classify_person_identity(feats['same_a.png'], feats['same_a_copy.png'])
+        assert same_state == 'same'
+        assert same_score >= IDENTITY_THRESHOLD_SAME
+
+        shift_state, shift_score = classify_person_identity(feats['same_a.png'], feats['same_b.png'])
+        assert shift_state == 'same'
+        assert shift_score >= IDENTITY_THRESHOLD_SAME
+
+        hard_state, hard_score = classify_person_identity(feats['same_pose_diff_person.png'], feats['same_a.png'])
+        assert hard_state == 'different'
+        assert hard_score <= IDENTITY_THRESHOLD_DIFF
+
+        green_state, green_score = classify_person_identity(feats['same_pose_diff_person.png'], feats['diff_green.png'])
+        assert green_state == 'different'
+        assert green_score <= IDENTITY_THRESHOLD_DIFF
+
+        blue_state, blue_score = classify_person_identity(feats['same_pose_diff_person.png'], feats['diff_blue.png'])
+        assert blue_state in {'different', 'uncertain'}
+        assert -1.0 <= blue_score <= 1.0
 
 
 class TestDualGroupingIdentityReject:

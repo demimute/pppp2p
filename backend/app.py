@@ -197,6 +197,8 @@ def groups():
         # Person disambiguation stays enabled by default for dual.
         enhanced_persona = data.get("enhanced_persona", True) if strategy == "dual" else False
         identity_penalty_strength = float(data.get("identity_penalty_strength", 0.5))
+        identity_same_threshold = float(data.get("identity_same_threshold", IDENTITY_THRESHOLD_SAME))
+        identity_diff_threshold = float(data.get("identity_diff_threshold", IDENTITY_THRESHOLD_DIFF))
         identity_version = str(data.get("identity_version", "v1")).strip() or "v1"
 
         if not folder:
@@ -313,7 +315,11 @@ def groups():
                         member_persona = persona_feats.get(m.name, [])
                         if member_persona:
                             disambig = compute_person_disambiguation(
-                                winner_persona, member_persona, m.similarity
+                                winner_persona,
+                                member_persona,
+                                m.similarity,
+                                identity_same_threshold=identity_same_threshold,
+                                identity_diff_threshold=identity_diff_threshold,
                             )
                             m.person_identity_state = disambig["person_identity_state"]
                             m.person_identity_score = disambig["person_identity_score"]
@@ -344,6 +350,8 @@ def groups():
                     g.members = new_members
                     g.persona_enabled = enhanced_persona
                     g.identity_version = identity_version
+                    g.identity_same_threshold = identity_same_threshold
+                    g.identity_diff_threshold = identity_diff_threshold
                     total_identity = sum(getattr(m, 'person_identity_score', 0.0) for m in new_members)
                     g.persona_boost = round(total_identity / len(new_members), 4) if new_members else 0.0
                     reasons = [getattr(m, 'decision_reason', '') for m in new_members if hasattr(m, 'decision_reason')]

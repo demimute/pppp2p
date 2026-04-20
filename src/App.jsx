@@ -45,7 +45,7 @@ function App() {
   const [stats, setStats] = useState({ total_groups: 0, to_remove: 0, to_keep: 0 });
   const [intelligence, setIntelligence] = useState(null);
   // Person enhancement for dual strategy: { enabled: boolean, weight: number 0-1 }
-  const [personEnhance, setPersonEnhance] = useState({ enabled: true, weight: 0.5 });
+  const [personEnhance, setPersonEnhance] = useState({ enabled: true, weight: 0.5, diffThreshold: 0.72 });
   const [analysisMessage, setAnalysisMessage] = useState('');
   const [undoFeedback, setUndoFeedback] = useState(null); // {type: 'error'|'success', message: string}
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -180,6 +180,9 @@ function App() {
         enhanced_persona: selectedStrategy === 'dual' ? personEnhance.enabled : undefined,
         identity_penalty_strength: selectedStrategy === 'dual'
           ? Number(personEnhance.weight ?? 0.5)
+          : undefined,
+        identity_diff_threshold: selectedStrategy === 'dual'
+          ? Number(personEnhance.diffThreshold ?? 0.72)
           : undefined,
         loose_threshold: 0.85,
       });
@@ -547,6 +550,36 @@ function App() {
                 </div>
               </div>
 
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-purple-600 dark:text-purple-300">异人判定阈值</span>
+                  <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
+                    {personEnhance.diffThreshold.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.72"
+                  max="0.90"
+                  step="0.01"
+                  value={personEnhance.diffThreshold}
+                  onChange={(e) => setPersonEnhance(prev => ({ ...prev, diffThreshold: parseFloat(e.target.value) }))}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #22c55e 0%, #f59e0b 50%, #ef4444 100%)`,
+                  }}
+                  aria-label="异人判定阈值"
+                />
+                <div className="flex justify-between text-xs text-purple-400 mt-1">
+                  <span>0.72 默认</span>
+                  <span>更敢判异人</span>
+                  <span>0.90 激进</span>
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  阈值越高，`uncertain` 越容易被打成 `different`，误并会下降，但误杀同人近重复的风险会上升。
+                </p>
+              </div>
+
               {/* Same-person pose refinement is automatic until Phase 2 is implemented */}
               <div className="rounded-lg border border-dashed border-purple-200 bg-white/70 px-4 py-3 dark:border-purple-800/70 dark:bg-slate-900/50">
                 <div className="flex items-center justify-between mb-2">
@@ -566,7 +599,7 @@ function App() {
             </div>
 
             <p className="mt-3 text-xs text-purple-400 dark:text-purple-500">
-              💡 人物身份判别引擎在两张图都含人物时判断是否为同一人。不同人时强降分，同一人时结合姿态信号细化判定，避免误合并。
+              💡 现在可以同时调“不同人物强抑制”和“异人判定阈值”。前者控制惩罚强度，后者控制把 `uncertain` 收紧成 `different` 的激进程度。
             </p>
           </div>
         )}

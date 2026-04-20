@@ -128,6 +128,22 @@ def test_identity_v2_baseline_builder_exists():
     assert builder.exists(), f"identity v2 baseline builder not found at {builder}"
 
 
+def test_identity_diff_threshold_override_can_force_different():
+    a = [0.0] * 24
+    b = [0.0] * 24
+    a[0] = 1.0
+    b[0] = 1.0
+    a[4] = 0.2
+    b[4] = 0.5
+
+    state_default, score = classify_person_identity(a, b)
+    state_strict, score_strict = classify_person_identity(a, b, diff_threshold=0.9)
+
+    assert state_default == 'uncertain'
+    assert state_strict == 'different'
+    assert score == score_strict
+
+
 def test_persona_cache_is_versioned_by_identity_generation(tmp_path):
     from PIL import Image
     from pathlib import Path

@@ -117,7 +117,13 @@ def persona_similarity(a: List[float], b: List[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float]:
+def classify_person_identity(
+    a: List[float],
+    b: List[float],
+    *,
+    same_threshold: float | None = None,
+    diff_threshold: float | None = None,
+) -> tuple[str, float]:
     """Classify whether two persona vectors belong to the same person.
 
     v2 feature structure (24 dims):
@@ -141,6 +147,9 @@ def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float
     """
     if not a or not b:
         return "unavailable", 0.0
+
+    same_threshold = IDENTITY_THRESHOLD_SAME if same_threshold is None else float(same_threshold)
+    diff_threshold = IDENTITY_THRESHOLD_DIFF if diff_threshold is None else float(diff_threshold)
 
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
@@ -184,9 +193,9 @@ def classify_person_identity(a: List[float], b: List[float]) -> tuple[str, float
 
     score = max(-1.0, min(1.0, score))
 
-    if score >= IDENTITY_THRESHOLD_SAME:
+    if score >= same_threshold:
         return "same", score
-    if score <= IDENTITY_THRESHOLD_DIFF:
+    if score <= diff_threshold:
         return "different", score
     return "uncertain", score
 
@@ -218,6 +227,9 @@ def compute_person_disambiguation(
     winner_persona: List[float],
     member_persona: List[float],
     base_similarity: float,
+    *,
+    identity_same_threshold: float | None = None,
+    identity_diff_threshold: float | None = None,
 ) -> dict:
     """Compute person disambiguation decision for a pair.
 
@@ -241,7 +253,10 @@ def compute_person_disambiguation(
             decision_reason: str
     """
     identity_state, identity_score = classify_person_identity(
-        winner_persona, member_persona
+        winner_persona,
+        member_persona,
+        same_threshold=identity_same_threshold,
+        diff_threshold=identity_diff_threshold,
     )
     pose_state, pose_score = classify_pose_similarity(
         winner_persona, member_persona

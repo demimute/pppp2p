@@ -84,9 +84,24 @@ def find_groups_clip(
         if len(component) < 2:
             continue
 
+        def direct_member_count(candidate_idx: int) -> int:
+            candidate_name = names[candidate_idx]
+            count = 1
+            for other_idx in component:
+                if other_idx == candidate_idx:
+                    continue
+                sim = cosine_similarity(embeddings[candidate_name], embeddings[names[other_idx]])
+                if sim >= threshold:
+                    count += 1
+            return count
+
         winner_idx = max(
             component,
-            key=lambda idx: (file_sizes.get(names[idx], 0), names[idx]),
+            key=lambda idx: (
+                direct_member_count(idx),
+                file_sizes.get(names[idx], 0),
+                names[idx],
+            ),
         )
         winner_name = names[winner_idx]
 

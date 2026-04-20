@@ -286,10 +286,13 @@ def groups():
                 persona_feats = compute_persona_features(images, folder)
                 _persona_cache[folder] = persona_feats
 
+            # Keep the loose graph threshold at least as strict as the direct threshold.
+            # If loose_threshold drops below clip_threshold, large weakly-connected components
+            # can collapse into a single winner-centered group and paradoxically reduce results.
             clip_groups = find_groups_clip(
                 embeddings,
                 threshold=clip_threshold,
-                loose_threshold=min(loose_threshold, clip_threshold),
+                loose_threshold=max(loose_threshold, clip_threshold),
                 file_sizes=sizes,
             )
 
@@ -326,7 +329,10 @@ def groups():
                             m.pose_state = disambig["pose_state"]
                             m.pose_similarity = disambig["pose_similarity"]
                             scaled_adjustment = disambig["person_adjustment"]
-                            if scaled_adjustment < 0:
+                            if m.person_identity_state == "uncertain":
+                                scaled_adjustment = round(-0.12 * identity_penalty_strength, 4)
+                                m.decision_reason = "person_identity_uncertain_penalty"
+                            elif scaled_adjustment < 0:
                                 scaled_adjustment = round(
                                     scaled_adjustment * (0.5 + identity_penalty_strength),
                                     4,
@@ -340,9 +346,14 @@ def groups():
                                 m.decision_reason = "different_person_hard_reject"
                                 continue
 
-                            # Apply adjustment to base similarity (clip to [0, 1])
+                            # Apply adjustment to base similarity (clip to [0, 1]).
+                            # Dual strategy should gate final membership on the adjusted score,
+                            # otherwise identity penalties only change display text and never
+                            # affect actual grouping results.
                             adjusted = max(0.0, min(1.0, m.similarity + scaled_adjustment))
                             m.similarity = round(adjusted, 4)
+                            if adjusted < clip_threshold:
+                                continue
 
                     new_members.append(m)
 

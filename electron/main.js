@@ -186,6 +186,24 @@ async function startPythonBackend() {
       }
     }
 
+    // Flask dev server emits startup warnings to stderr even when backend is healthy.
+    if (
+      message.includes('WARNING: This is a development server') ||
+      message.includes('Press CTRL+C to quit') ||
+      message.includes('127.0.0.1 - - [') ||
+      message.includes('INFO:werkzeug:127.0.0.1 - - [')
+    ) {
+      const backendReady = await isPortOpen(BACKEND_PORT);
+      if (backendReady) {
+        updateBackendStatus({
+          running: true,
+          source: 'managed',
+          message: '内置后端已启动',
+        });
+        return;
+      }
+    }
+
     updateBackendStatus({
       running: false,
       source: 'error',

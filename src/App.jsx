@@ -267,7 +267,7 @@ function App() {
     });
 
     if (isWinnerSelection && action === 'remove') {
-      setUndoFeedback({ type: 'error', message: 'Winner 不能标记为移除，请保留至少 1 张照片' });
+      setUndoFeedback({ type: 'error', message: '最优项不能标记为移除，请保留至少 1 张照片' });
     }
 
     if (shouldClosePanel) {
@@ -289,6 +289,30 @@ function App() {
 
   const handleCompareNavigate = (index) => {
     setComparePanel(prev => ({ ...prev, selectedIndex: index }));
+  };
+
+  const handlePromoteOptimal = (memberName) => {
+    if (!memberName || !comparePanel.group) return;
+
+    setGroups((prev) => prev.map((g) => {
+      if (g.id !== comparePanel.group.id) return g;
+      return {
+        ...g,
+        winner: memberName,
+        winner_size: g.members.find((m) => m.name === memberName)?.size || g.winner_size,
+        members: g.members.map((m) => ({ ...m, to_remove: m.name === memberName ? false : m.to_remove })),
+      };
+    }));
+
+    setComparePanel((prev) => ({
+      ...prev,
+      group: {
+        ...prev.group,
+        winner: memberName,
+        winner_size: prev.group.members.find((m) => m.name === memberName)?.size || prev.group.winner_size,
+        members: prev.group.members.map((m) => ({ ...m, to_remove: m.name === memberName ? false : m.to_remove })),
+      },
+    }));
   };
 
   const applyAlternativeThreshold = async (altThreshold) => {
@@ -749,6 +773,7 @@ function App() {
         onAction={handleCompareAction}
         onSkip={handleCompareSkip}
         onNavigate={handleCompareNavigate}
+        onPromoteOptimal={handlePromoteOptimal}
       />
 
       {/* Confirm Dialog */}

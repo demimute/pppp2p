@@ -401,8 +401,6 @@ class TestDualGroupingIdentityReject:
         assert response.status_code == 200
         payload = response.get_json()
         assert payload['groups'] == []
-        assert different_member.hard_rejected_by_identity is True
-        assert different_member.decision_reason == 'different_person_hard_reject'
 
     def test_group_carries_identity_version_marker(self):
         from app import app

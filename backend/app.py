@@ -269,9 +269,7 @@ def groups():
                 group_id += 1
 
         elif strategy in {"both", "dual"}:
-            # CLIP + pHash double保险, both thresholds must match.
-            # When enhanced_persona=True: also compute persona features and use them
-            # as a third signal (subject identity) in group formation and filtering.
+            # Dual now groups by accepted pair edges first, then selects a default optimal item.
             embeddings = _embeddings_cache.get(folder, {})
             hashes = _hashes_cache.get(folder, {})
             persona_feats = _persona_cache.get(folder, {}) if enhanced_persona else {}
@@ -286,90 +284,139 @@ def groups():
                 persona_feats = compute_persona_features(images, folder)
                 _persona_cache[folder] = persona_feats
 
-            # Keep the loose graph threshold at least as strict as the direct threshold.
-            # If loose_threshold drops below clip_threshold, large weakly-connected components
-            # can collapse into a single winner-centered group and paradoxically reduce results.
-            clip_groups = find_groups_clip(
-                embeddings,
-                threshold=clip_threshold,
-                loose_threshold=max(loose_threshold, clip_threshold),
-                file_sizes=sizes,
-            )
+            from collections import defaultdict
+            from engine.similarity import hamming_distance, cosine_similarity
+            from models import GroupMember, Group
 
-            filtered_groups = []
-            from engine.similarity import hamming_distance
-            for g in clip_groups:
-                winner_hash = hashes.get(g.winner, "")
-                winner_persona = persona_feats.get(g.winner, []) if enhanced_persona else []
-                new_members = []
+            pair_edges = defaultdict(dict)
+            member_meta = defaultdict(dict)
+            image_names = sorted(images)
 
-                for m in g.members:
-                    h = hashes.get(m.name, "")
-                    dist = hamming_distance(winner_hash, h) if (h and winner_hash) else 999
+            for i in range(len(image_names)):
+                for j in range(i + 1, len(image_names)):
+                    a = image_names[i]
+                    b = image_names[j]
+                    base_similarity = cosine_similarity(embeddings[a], embeddings[b])
+                    if base_similarity < clip_threshold:
+                        continue
 
+                    dist = hamming_distance(hashes.get(a, ""), hashes.get(b, "")) if (hashes.get(a) and hashes.get(b)) else 999
                     if dist > phash_threshold:
                         continue
 
-                    m.hamming_distance = dist
-                    m.hard_rejected_by_identity = False
+                    final_similarity = round(base_similarity, 4)
+                    state = 'unavailable'
+                    identity_score = 0.0
+                    pose_state = 'unavailable'
+                    pose_similarity = 0.0
+                    adjustment = 0.0
+                    reason = 'clip_phash_pair_pass'
+                    hard_rejected = False
 
-                    # Phase 1 Person Disambiguation (replaces old persona fusion)
-                    if enhanced_persona and winner_persona:
-                        member_persona = persona_feats.get(m.name, [])
-                        if member_persona:
+                    if enhanced_persona:
+                        a_persona = persona_feats.get(a, [])
+                        b_persona = persona_feats.get(b, [])
+                        if a_persona and b_persona:
                             disambig = compute_person_disambiguation(
-                                winner_persona,
-                                member_persona,
-                                m.similarity,
+                                a_persona,
+                                b_persona,
+                                base_similarity,
                                 identity_same_threshold=identity_same_threshold,
                                 identity_diff_threshold=identity_diff_threshold,
                             )
-                            m.person_identity_state = disambig["person_identity_state"]
-                            m.person_identity_score = disambig["person_identity_score"]
-                            m.pose_state = disambig["pose_state"]
-                            m.pose_similarity = disambig["pose_similarity"]
-                            scaled_adjustment = disambig["person_adjustment"]
-                            if m.person_identity_state == "uncertain":
-                                scaled_adjustment = round(-0.12 * identity_penalty_strength, 4)
-                                m.decision_reason = "person_identity_uncertain_penalty"
-                            elif scaled_adjustment < 0:
-                                scaled_adjustment = round(
-                                    scaled_adjustment * (0.5 + identity_penalty_strength),
-                                    4,
-                                )
-                            m.person_adjustment = scaled_adjustment
-                            m.decision_reason = disambig["decision_reason"]
-                            m.persona_vector = member_persona
+                            state = disambig['person_identity_state']
+                            identity_score = disambig['person_identity_score']
+                            pose_state = disambig['pose_state']
+                            pose_similarity = disambig['pose_similarity']
+                            adjustment = disambig['person_adjustment']
+                            reason = disambig['decision_reason']
 
-                            if m.person_identity_state == "different":
-                                m.hard_rejected_by_identity = True
-                                m.decision_reason = "different_person_hard_reject"
+                            if state == 'different':
+                                hard_rejected = True
+                                reason = 'different_person_hard_reject'
+                            elif state == 'uncertain':
+                                adjustment = round(-0.12 * identity_penalty_strength, 4)
+                                reason = 'person_identity_uncertain_penalty'
+                            elif adjustment < 0:
+                                adjustment = round(adjustment * (0.5 + identity_penalty_strength), 4)
+
+                            final_similarity = round(max(0.0, min(1.0, base_similarity + adjustment)), 4)
+                            if hard_rejected or final_similarity < clip_threshold:
                                 continue
 
-                            # Apply adjustment to base similarity (clip to [0, 1]).
-                            # Dual strategy should gate final membership on the adjusted score,
-                            # otherwise identity penalties only change display text and never
-                            # affect actual grouping results.
-                            adjusted = max(0.0, min(1.0, m.similarity + scaled_adjustment))
-                            m.similarity = round(adjusted, 4)
-                            if adjusted < clip_threshold:
-                                continue
+                    pair_edges[a][b] = final_similarity
+                    pair_edges[b][a] = final_similarity
+                    shared_meta = {
+                        'hamming_distance': dist,
+                        'person_identity_state': state,
+                        'person_identity_score': identity_score,
+                        'pose_state': pose_state,
+                        'pose_similarity': pose_similarity,
+                        'person_adjustment': adjustment,
+                        'decision_reason': reason,
+                        'hard_rejected_by_identity': hard_rejected,
+                    }
+                    member_meta[a][b] = shared_meta
+                    member_meta[b][a] = shared_meta
 
-                    new_members.append(m)
+            visited = set()
+            components = []
+            for name in image_names:
+                if name in visited or not pair_edges.get(name):
+                    continue
+                queue = [name]
+                visited.add(name)
+                component = []
+                while queue:
+                    node = queue.pop(0)
+                    component.append(node)
+                    for neighbor in pair_edges[node].keys():
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            queue.append(neighbor)
+                if len(component) >= 2:
+                    components.append(sorted(component))
 
-                if len(new_members) >= 2:
-                    g.members = new_members
-                    g.persona_enabled = enhanced_persona
-                    g.identity_version = identity_version
-                    g.identity_same_threshold = identity_same_threshold
-                    g.identity_diff_threshold = identity_diff_threshold
-                    total_identity = sum(getattr(m, 'person_identity_score', 0.0) for m in new_members)
-                    g.persona_boost = round(total_identity / len(new_members), 4) if new_members else 0.0
-                    reasons = [getattr(m, 'decision_reason', '') for m in new_members if hasattr(m, 'decision_reason')]
-                    g.group_decision_reason = reasons[0] if reasons else ""
-                    g.group_final_score = round(sum(m.similarity for m in new_members) / len(new_members), 4)
-                    filtered_groups.append(g)
-            group_list = filtered_groups
+            group_list = []
+            group_id = 1
+            for component in components:
+                def optimal_key(name: str):
+                    neighbors = pair_edges[name]
+                    degree = sum(1 for other in component if other in neighbors)
+                    score_sum = sum(neighbors.get(other, 0.0) for other in component if other != name)
+                    return (degree, round(score_sum, 6), sizes.get(name, 0), name)
+
+                optimal_name = max(component, key=optimal_key)
+                members = []
+                for name in component:
+                    pair_info = member_meta[optimal_name].get(name, {}) if name != optimal_name else {}
+                    displayed_similarity = 1.0 if name == optimal_name else pair_edges[optimal_name].get(name, max(pair_edges[name].values(), default=0.0))
+                    members.append(GroupMember(
+                        name=name,
+                        similarity=round(displayed_similarity, 4),
+                        to_remove=(name != optimal_name),
+                        hamming_distance=pair_info.get('hamming_distance', 0),
+                        person_identity_state=pair_info.get('person_identity_state', 'unavailable'),
+                        person_identity_score=pair_info.get('person_identity_score', 0.0),
+                        pose_state=pair_info.get('pose_state', 'unavailable'),
+                        pose_similarity=pair_info.get('pose_similarity', 0.0),
+                        person_adjustment=pair_info.get('person_adjustment', 0.0),
+                        decision_reason=pair_info.get('decision_reason', 'pair_component_member'),
+                    ))
+
+                total_identity = sum(getattr(m, 'person_identity_score', 0.0) for m in members if m.name != optimal_name)
+                group_list.append(Group(
+                    id=group_id,
+                    winner=optimal_name,
+                    winner_size=sizes.get(optimal_name, 0),
+                    members=members,
+                    persona_enabled=enhanced_persona,
+                    identity_version=identity_version,
+                    persona_boost=round(total_identity / max(len(members) - 1, 1), 4),
+                    group_final_score=round(sum(m.similarity for m in members) / len(members), 4),
+                    group_decision_reason='pairwise_monotonic_component',
+                ))
+                group_id += 1
 
         else:
             return jsonify({"error": f"unknown strategy: {strategy}"}), 400

@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback } from 'react';
 import { toPreviewUrl } from '../utils/fileUrl.js';
 
-function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, onSkip, onNavigate }) {
+function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, onSkip, onNavigate, onPromoteOptimal }) {
   // Keyboard navigation
   const handleKeyDown = useCallback((e) => {
     if (!open || !group) return;
@@ -152,12 +152,12 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                 </div>
                 <img
                   src={toPreviewUrl(winnerImage?.path || winnerImage?.name)}
-                  alt="Winner"
+                  alt="Optimal"
                   className="absolute inset-0 w-full h-full object-contain"
                   onError={(e) => { e.target.style.opacity = '0'; }}
                 />
                 <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded">
-                  ✓ Winner
+                  ✓ 最优项
                 </div>
               </div>
               <div className="mt-2 text-center">
@@ -243,6 +243,13 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
               className="flex-1 btn btn-danger py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
               × 标记移除
+            </button>
+            <button
+              onClick={() => onPromoteOptimal?.(selectedImage?.name)}
+              disabled={selectedImage?.name === group.winner}
+              className="flex-1 btn btn-secondary py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ★ 设为最优项
             </button>
             <button
               onClick={onSkip}

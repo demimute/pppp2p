@@ -56,7 +56,7 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
           </span>
           {group.winner_size && (
             <span className="text-xs text-gray-500 dark:text-gray-500">
-              Winner: {formatFileSize(group.winner_size)}
+              最优项: {formatFileSize(group.winner_size)}
             </span>
           )}
         </div>
@@ -93,7 +93,7 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
                 onKeyDown={(e) => handleKeyDown(e, index)}
                 tabIndex={0}
                 role="button"
-                aria-label={`${member.name}, 相似度 ${getSimilarityLabel(member, selectedStrategy)}${isWinner ? ', Winner' : ''}`}
+                aria-label={`${member.name}, 相似度 ${getSimilarityLabel(member, selectedStrategy)}${isWinner ? ', 最优项' : ''}`}
               >
                 {/* Thumbnail */}
                 <div className="aspect-square bg-gray-100 dark:bg-gray-700 relative overflow-hidden">
@@ -126,7 +126,7 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
                   {/* Winner badge */}
                   {isWinner && (
                     <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded font-medium">
-                      ✓ Winner
+                      ✓ 最优项
                     </div>
                   )}
 

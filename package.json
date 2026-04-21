@@ -39,7 +39,7 @@
         "nsis"
       ],
       "icon": "resources/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}-${target}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   },
   "dependencies": {

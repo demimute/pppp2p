@@ -3,9 +3,10 @@
 import os
 import shutil
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -65,6 +66,167 @@ def _is_image(filename: str) -> bool:
     """Check if a file is a supported image."""
     ext = Path(filename).suffix.lower()
     return ext in IMAGE_EXTS
+
+
+def _fast_persona_prefilter(a_persona: List[float], b_persona: List[float]) -> bool:
+    """Cheap coarse reject before expensive pair evaluation.
+
+    Uses a few highly discriminative persona dims to skip pairs that are
+    obviously not the same subject. Returns True when the pair should be
+    rejected early.
+    """
+    if not a_persona or not b_persona or len(a_persona) < 13 or len(b_persona) < 13:
+        return False
+
+    torso_color_gap = max(abs(a_persona[i] - b_persona[i]) for i in range(4))
+    head_brightness_gap = abs(a_persona[4] - b_persona[4])
+    torso_block_gap = max(abs(a_persona[i] - b_persona[i]) for i in range(7, 11))
+    head_torso_gap = abs(a_persona[12] - b_persona[12])
+
+    return (
+        torso_color_gap > 0.72 or
+        torso_block_gap > 0.78 or
+        (head_brightness_gap > 0.62 and head_torso_gap > 0.42)
+    )
+
+
+def _evaluate_dual_pair(
+    a: str,
+    b: str,
+    embeddings: Dict[str, List[float]],
+    hashes: Dict[str, str],
+    persona_feats: Dict[str, List[float]],
+    enhanced_persona: bool,
+    clip_threshold: float,
+    phash_threshold: int,
+    identity_penalty_strength: float,
+    identity_same_threshold: float,
+    identity_diff_threshold: float,
+) -> Optional[Tuple[str, str, float, Dict[str, Any]]]:
+    from engine.similarity import hamming_distance, cosine_similarity
+
+    if enhanced_persona:
+        a_persona = persona_feats.get(a, [])
+        b_persona = persona_feats.get(b, [])
+        if _fast_persona_prefilter(a_persona, b_persona):
+            return None
+
+    base_similarity = cosine_similarity(embeddings[a], embeddings[b])
+    if base_similarity < clip_threshold:
+        return None
+
+    dist = hamming_distance(hashes.get(a, ""), hashes.get(b, "")) if (hashes.get(a) and hashes.get(b)) else 999
+    if dist > phash_threshold:
+        return None
+
+    final_similarity = round(base_similarity, 4)
+    state = 'unavailable'
+    identity_score = 0.0
+    pose_state = 'unavailable'
+    pose_similarity = 0.0
+    adjustment = 0.0
+    reason = 'clip_phash_pair_pass'
+    hard_rejected = False
+
+    if enhanced_persona:
+        a_persona = persona_feats.get(a, [])
+        b_persona = persona_feats.get(b, [])
+        if a_persona and b_persona:
+            disambig = compute_person_disambiguation(
+                a_persona,
+                b_persona,
+                base_similarity,
+                identity_same_threshold=identity_same_threshold,
+                identity_diff_threshold=identity_diff_threshold,
+            )
+            state = disambig['person_identity_state']
+            identity_score = disambig['person_identity_score']
+            pose_state = disambig['pose_state']
+            pose_similarity = disambig['pose_similarity']
+            adjustment = disambig['person_adjustment']
+            reason = disambig['decision_reason']
+
+            if state == 'different':
+                hard_rejected = True
+                reason = 'different_person_hard_reject'
+            elif state == 'uncertain':
+                adjustment = round(-0.12 * identity_penalty_strength, 4)
+                reason = 'person_identity_uncertain_penalty'
+            elif adjustment < 0:
+                adjustment = round(adjustment * (0.5 + identity_penalty_strength), 4)
+
+            final_similarity = round(max(0.0, min(1.0, base_similarity + adjustment)), 4)
+            if hard_rejected or final_similarity < clip_threshold:
+                return None
+
+    shared_meta = {
+        'hamming_distance': dist,
+        'person_identity_state': state,
+        'person_identity_score': identity_score,
+        'pose_state': pose_state,
+        'pose_similarity': pose_similarity,
+        'person_adjustment': adjustment,
+        'decision_reason': reason,
+        'hard_rejected_by_identity': hard_rejected,
+    }
+    return a, b, final_similarity, shared_meta
+
+
+def _build_dual_edges_parallel(
+    image_names: List[str],
+    embeddings: Dict[str, List[float]],
+    hashes: Dict[str, str],
+    persona_feats: Dict[str, List[float]],
+    enhanced_persona: bool,
+    clip_threshold: float,
+    phash_threshold: int,
+    identity_penalty_strength: float,
+    identity_same_threshold: float,
+    identity_diff_threshold: float,
+) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, Dict[str, Any]]]]:
+    from collections import defaultdict
+
+    pair_edges = defaultdict(dict)
+    member_meta = defaultdict(dict)
+    if len(image_names) < 2:
+        return pair_edges, member_meta
+
+    max_workers = min(8, max(1, (os.cpu_count() or 4)))
+    chunk_size = max(1, min(32, len(image_names) // max_workers or 1))
+
+    def process_chunk(start_index: int, end_index: int):
+        chunk_results = []
+        for i in range(start_index, end_index):
+            a = image_names[i]
+            for j in range(i + 1, len(image_names)):
+                b = image_names[j]
+                result = _evaluate_dual_pair(
+                    a,
+                    b,
+                    embeddings,
+                    hashes,
+                    persona_feats,
+                    enhanced_persona,
+                    clip_threshold,
+                    phash_threshold,
+                    identity_penalty_strength,
+                    identity_same_threshold,
+                    identity_diff_threshold,
+                )
+                if result is not None:
+                    chunk_results.append(result)
+        return chunk_results
+
+    ranges = [(start, min(start + chunk_size, len(image_names) - 1)) for start in range(0, len(image_names) - 1, chunk_size)]
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for chunk_results in executor.map(lambda r: process_chunk(r[0], r[1]), ranges):
+            for a, b, final_similarity, shared_meta in chunk_results:
+                pair_edges[a][b] = final_similarity
+                pair_edges[b][a] = final_similarity
+                member_meta[a][b] = shared_meta
+                member_meta[b][a] = shared_meta
+
+    return pair_edges, member_meta
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -284,80 +446,21 @@ def groups():
                 persona_feats = compute_persona_features(images, folder)
                 _persona_cache[folder] = persona_feats
 
-            from collections import defaultdict
-            from engine.similarity import hamming_distance, cosine_similarity
             from models import GroupMember, Group
 
-            pair_edges = defaultdict(dict)
-            member_meta = defaultdict(dict)
             image_names = sorted(images)
-
-            for i in range(len(image_names)):
-                for j in range(i + 1, len(image_names)):
-                    a = image_names[i]
-                    b = image_names[j]
-                    base_similarity = cosine_similarity(embeddings[a], embeddings[b])
-                    if base_similarity < clip_threshold:
-                        continue
-
-                    dist = hamming_distance(hashes.get(a, ""), hashes.get(b, "")) if (hashes.get(a) and hashes.get(b)) else 999
-                    if dist > phash_threshold:
-                        continue
-
-                    final_similarity = round(base_similarity, 4)
-                    state = 'unavailable'
-                    identity_score = 0.0
-                    pose_state = 'unavailable'
-                    pose_similarity = 0.0
-                    adjustment = 0.0
-                    reason = 'clip_phash_pair_pass'
-                    hard_rejected = False
-
-                    if enhanced_persona:
-                        a_persona = persona_feats.get(a, [])
-                        b_persona = persona_feats.get(b, [])
-                        if a_persona and b_persona:
-                            disambig = compute_person_disambiguation(
-                                a_persona,
-                                b_persona,
-                                base_similarity,
-                                identity_same_threshold=identity_same_threshold,
-                                identity_diff_threshold=identity_diff_threshold,
-                            )
-                            state = disambig['person_identity_state']
-                            identity_score = disambig['person_identity_score']
-                            pose_state = disambig['pose_state']
-                            pose_similarity = disambig['pose_similarity']
-                            adjustment = disambig['person_adjustment']
-                            reason = disambig['decision_reason']
-
-                            if state == 'different':
-                                hard_rejected = True
-                                reason = 'different_person_hard_reject'
-                            elif state == 'uncertain':
-                                adjustment = round(-0.12 * identity_penalty_strength, 4)
-                                reason = 'person_identity_uncertain_penalty'
-                            elif adjustment < 0:
-                                adjustment = round(adjustment * (0.5 + identity_penalty_strength), 4)
-
-                            final_similarity = round(max(0.0, min(1.0, base_similarity + adjustment)), 4)
-                            if hard_rejected or final_similarity < clip_threshold:
-                                continue
-
-                    pair_edges[a][b] = final_similarity
-                    pair_edges[b][a] = final_similarity
-                    shared_meta = {
-                        'hamming_distance': dist,
-                        'person_identity_state': state,
-                        'person_identity_score': identity_score,
-                        'pose_state': pose_state,
-                        'pose_similarity': pose_similarity,
-                        'person_adjustment': adjustment,
-                        'decision_reason': reason,
-                        'hard_rejected_by_identity': hard_rejected,
-                    }
-                    member_meta[a][b] = shared_meta
-                    member_meta[b][a] = shared_meta
+            pair_edges, member_meta = _build_dual_edges_parallel(
+                image_names,
+                embeddings,
+                hashes,
+                persona_feats,
+                enhanced_persona,
+                clip_threshold,
+                phash_threshold,
+                identity_penalty_strength,
+                identity_same_threshold,
+                identity_diff_threshold,
+            )
 
             visited = set()
             components = []

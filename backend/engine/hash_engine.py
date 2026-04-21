@@ -7,10 +7,24 @@ _backend_root = Path(__file__).parent.parent
 if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 import imagehash
 from PIL import Image
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 from cache import get_cache, set_cache
+
+
+def _compute_single_hash(folder_path: Path, img_name: str) -> Tuple[str, Optional[str]]:
+    img_path = folder_path / img_name
+    try:
+        if img_path.exists() and img_path.is_file():
+            with Image.open(img_path) as img:
+                hex_hash = str(imagehash.phash(img))
+            return img_name, hex_hash
+    except Exception:
+        pass
+    return img_name, None
 
 
 def compute_hashes(images: List[str], folder: str) -> Dict[str, str]:
@@ -29,25 +43,26 @@ def compute_hashes(images: List[str], folder: str) -> Dict[str, str]:
 
     folder_path = Path(folder)
     hashes: Dict[str, str] = {}
+    uncached_images: List[str] = []
 
     for img_name in images:
-        # Check cache (namespace: 'hash')
         cached = get_cache(folder, img_name, cache_type="hash")
         if cached is not None:
             hashes[img_name] = cached
-            continue
+        else:
+            uncached_images.append(img_name)
 
-        img_path = folder_path / img_name
-        try:
-            if img_path.exists() and img_path.is_file():
-                img = Image.open(img_path)
-                # Compute pHash (64-bit by default)
-                h = imagehash.phash(img)
-                hex_hash = str(h)
-                hashes[img_name] = hex_hash
-                set_cache(folder, img_name, hex_hash, cache_type="hash")
-        except Exception:
-            # Failed to hash, skip
-            pass
+    if not uncached_images:
+        return hashes
+
+    max_workers = min(8, max(1, (os.cpu_count() or 4)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_compute_single_hash, folder_path, img_name) for img_name in uncached_images]
+        for future in as_completed(futures):
+            img_name, hex_hash = future.result()
+            if hex_hash is None:
+                continue
+            hashes[img_name] = hex_hash
+            set_cache(folder, img_name, hex_hash, cache_type="hash")
 
     return hashes

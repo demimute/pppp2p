@@ -402,6 +402,42 @@ class TestDualGroupingIdentityReject:
         payload = response.get_json()
         assert payload['groups'] == []
 
+    def test_dual_parallel_edge_builder_preserves_identity_reject_and_accept(self):
+        import app as app_module
+
+        embeddings = {
+            'winner.jpg': [1.0, 0.0],
+            'same.jpg': [0.99, 0.01],
+            'different.jpg': [0.99, 0.01],
+        }
+        hashes = {
+            'winner.jpg': '0' * 16,
+            'same.jpg': '0' * 16,
+            'different.jpg': '0' * 16,
+        }
+        persona_feats = {
+            'winner.jpg': [1.0] * 24,
+            'same.jpg': [1.0] * 24,
+            'different.jpg': [-1.0] * 24,
+        }
+
+        pair_edges, member_meta = app_module._build_dual_edges_parallel(
+            ['different.jpg', 'same.jpg', 'winner.jpg'],
+            embeddings,
+            hashes,
+            persona_feats,
+            True,
+            0.75,
+            10,
+            1.0,
+            IDENTITY_THRESHOLD_SAME,
+            IDENTITY_THRESHOLD_DIFF,
+        )
+
+        assert pair_edges['winner.jpg']['same.jpg'] >= 0.75
+        assert 'different.jpg' not in pair_edges['winner.jpg']
+        assert member_meta['winner.jpg']['same.jpg']['person_identity_state'] == 'same'
+
     def test_group_carries_identity_version_marker(self):
         from app import app
 

@@ -9,6 +9,7 @@
     "dev:electron": "electron .",
     "build": "vite build",
     "build:electron": "vite build && electron-builder",
+    "build:electron:win": "vite build && electron-builder --win portable --x64",
     "start": "electron .",
     "progress:watchdog": "node scripts/progress-watchdog.js",
     "progress:update": "node scripts/progress-update.js",
@@ -33,8 +34,12 @@
       "icon": "resources/icon.icns"
     },
     "win": {
-      "target": "nsis",
-      "icon": "resources/icon.ico"
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}-${target}.${ext}"
     }
   },
   "dependencies": {

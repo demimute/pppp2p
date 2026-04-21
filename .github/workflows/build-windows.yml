@@ -1,0 +1,45 @@
+name: Build Windows Portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - created
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows portable and NSIS
+        run: npm run build:electron:win
+
+      - name: Archive unpacked portable directory
+        run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/DedupStudio-win-x64-unpacked.zip
+        shell: pwsh
+
+      - name: Upload portable exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DedupStudio-win-x64-portable
+          path: |
+            dist-electron/*portable*.exe
+            dist-electron/*nsis*.exe
+            dist-electron/DedupStudio-win-x64-unpacked.zip
+            dist-electron/latest*.yml
+          if-no-files-found: warn

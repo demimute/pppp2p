@@ -58,6 +58,8 @@ _undo_stack: Dict[str, List[Dict[str, str]]] = {}
 # last operation for a folder: {folder: {images: [...], dest_folder: ...}}
 _last_op: Dict[str, Dict[str, Any]] = {}
 _prewarmed_folders: set[str] = set()
+_prewarm_executor = ThreadPoolExecutor(max_workers=1)
+_prewarm_futures: Dict[str, Any] = {}
 
 # Supported image extensions
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif'}
@@ -67,6 +69,55 @@ def _is_image(filename: str) -> bool:
     """Check if a file is a supported image."""
     ext = Path(filename).suffix.lower()
     return ext in IMAGE_EXTS
+
+
+def _start_async_prewarm(folder: str, image_name: str) -> None:
+    if not image_name or folder in _prewarmed_folders or folder in _prewarm_futures:
+        return
+
+    def _task():
+        embeddings = compute_embeddings([image_name], folder)
+        if embeddings:
+            cached = _embeddings_cache.setdefault(folder, {})
+            cached.update(embeddings)
+        _prewarmed_folders.add(folder)
+        return embeddings
+
+    _prewarm_futures[folder] = _prewarm_executor.submit(_task)
+
+
+def _consume_prewarm_if_ready(folder: str) -> None:
+    future = _prewarm_futures.get(folder)
+    if not future:
+        return
+    if not future.done():
+        return
+    try:
+        embeddings = future.result() or {}
+        if embeddings:
+            cached = _embeddings_cache.setdefault(folder, {})
+            cached.update(embeddings)
+            _prewarmed_folders.add(folder)
+    except Exception:
+        pass
+    finally:
+        _prewarm_futures.pop(folder, None)
+
+
+def _await_prewarm(folder: str) -> None:
+    future = _prewarm_futures.get(folder)
+    if not future:
+        return
+    try:
+        embeddings = future.result() or {}
+        if embeddings:
+            cached = _embeddings_cache.setdefault(folder, {})
+            cached.update(embeddings)
+            _prewarmed_folders.add(folder)
+    except Exception:
+        pass
+    finally:
+        _prewarm_futures.pop(folder, None)
 
 
 def _fast_persona_prefilter(a_persona: List[float], b_persona: List[float]) -> bool:
@@ -280,13 +331,9 @@ def scan():
         # Store sizes globally
         _file_sizes[folder] = sizes
 
-        # Warm the CLIP model once after a successful scan so first analysis feels faster.
-        if all_images and folder not in _prewarmed_folders:
-            try:
-                compute_embeddings([all_images[0]], folder)
-                _prewarmed_folders.add(folder)
-            except Exception:
-                pass
+        if all_images:
+            _consume_prewarm_if_ready(folder)
+            _start_async_prewarm(folder, all_images[0])
 
         response = {
             "folder": folder,
@@ -313,8 +360,15 @@ def embed():
         if not images:
             return jsonify({"error": "images list is required"}), 400
 
+        _await_prewarm(folder)
+
+        cached_embeddings = _embeddings_cache.get(folder, {})
+        missing_images = [name for name in images if name not in cached_embeddings]
+
         # Compute embeddings
-        embeddings = compute_embeddings(images, folder)
+        embeddings = dict(cached_embeddings)
+        if missing_images:
+            embeddings.update(compute_embeddings(missing_images, folder))
 
         # Cache in memory
         if folder not in _embeddings_cache:
@@ -392,10 +446,12 @@ def groups():
         hashes = {}
 
         if strategy == "clip":
-            embeddings = _embeddings_cache.get(folder, {})
-            if not embeddings:
-                images = list(sizes.keys())
-                embeddings = compute_embeddings(images, folder)
+            _await_prewarm(folder)
+            images = list(sizes.keys())
+            embeddings = dict(_embeddings_cache.get(folder, {}))
+            missing_images = [name for name in images if name not in embeddings]
+            if missing_images:
+                embeddings.update(compute_embeddings(missing_images, folder))
                 _embeddings_cache[folder] = embeddings
             group_list = find_groups_clip(embeddings, threshold, loose_threshold, sizes)
 
@@ -441,12 +497,14 @@ def groups():
 
         elif strategy in {"both", "dual"}:
             # Dual now groups by accepted pair edges first, then selects a default optimal item.
-            embeddings = _embeddings_cache.get(folder, {})
+            _await_prewarm(folder)
+            embeddings = dict(_embeddings_cache.get(folder, {}))
             hashes = _hashes_cache.get(folder, {})
             persona_feats = _persona_cache.get(folder, {}) if enhanced_persona else {}
             images = list(sizes.keys())
-            if not embeddings:
-                embeddings = compute_embeddings(images, folder)
+            missing_embeddings = [name for name in images if name not in embeddings]
+            if missing_embeddings:
+                embeddings.update(compute_embeddings(missing_embeddings, folder))
                 _embeddings_cache[folder] = embeddings
             if not hashes:
                 hashes = compute_hashes(images, folder)

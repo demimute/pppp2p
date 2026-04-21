@@ -57,6 +57,7 @@ _history_id_counter = 1
 _undo_stack: Dict[str, List[Dict[str, str]]] = {}
 # last operation for a folder: {folder: {images: [...], dest_folder: ...}}
 _last_op: Dict[str, Dict[str, Any]] = {}
+_prewarmed_folders: set[str] = set()
 
 # Supported image extensions
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif'}
@@ -278,6 +279,14 @@ def scan():
 
         # Store sizes globally
         _file_sizes[folder] = sizes
+
+        # Warm the CLIP model once after a successful scan so first analysis feels faster.
+        if all_images and folder not in _prewarmed_folders:
+            try:
+                compute_embeddings([all_images[0]], folder)
+                _prewarmed_folders.add(folder)
+            except Exception:
+                pass
 
         response = {
             "folder": folder,

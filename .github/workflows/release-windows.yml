@@ -1,0 +1,42 @@
+name: Release Windows Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows portable and NSIS
+        run: npm run build:electron:win
+
+      - name: Archive unpacked portable directory
+        run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/DedupStudio-win-x64-unpacked.zip
+        shell: pwsh
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-electron/*.exe
+            dist-electron/DedupStudio-win-x64-unpacked.zip
+            docs/windows-portable-readme.txt
+          generate_release_notes: true

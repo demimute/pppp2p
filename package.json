@@ -1,6 +1,6 @@
 {
   "name": "dedup-studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "智能照片去重助手 - 基于 CLIP 视觉嵌入 + 感知哈希",
   "main": "electron/main.js",
   "scripts": {

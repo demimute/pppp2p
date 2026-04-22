@@ -91,11 +91,20 @@ def _remember_group_winner(folder: str, member_names: List[str], winner: str) ->
         return
     preferences = _load_preferences()
     signature = _group_signature(folder, member_names)
+    updated_at = datetime.now().isoformat()
+    preferences.setdefault('group_winners', {})
+    preferences.setdefault('winner_history', {})
     preferences['group_winners'][signature] = {
         'folder': folder,
         'members': sorted(member_names),
         'winner': winner,
-        'updated_at': datetime.now().isoformat(),
+        'updated_at': updated_at,
+    }
+    preferences['winner_history'][f"{folder}::{winner}"] = {
+        'folder': folder,
+        'winner': winner,
+        'members': sorted(member_names),
+        'updated_at': updated_at,
     }
     _save_preferences(preferences)
 
@@ -106,12 +115,28 @@ def _restore_group_winner(folder: str, member_names: List[str]) -> Optional[str]
     preferences = _load_preferences()
     signature = _group_signature(folder, member_names)
     record = preferences.get('group_winners', {}).get(signature)
-    if not record:
+    if record:
+        winner = record.get('winner')
+        if winner in member_names:
+            return winner
+
+    winner_history = preferences.get('winner_history', {})
+    candidates = []
+    member_name_set = set(member_names)
+    for key, item in winner_history.items():
+        if item.get('folder') != folder:
+            continue
+        winner = item.get('winner')
+        if winner not in member_name_set:
+            continue
+        overlap = len(member_name_set.intersection(set(item.get('members', []))))
+        candidates.append((overlap, item.get('updated_at', ''), winner))
+
+    if not candidates:
         return None
-    winner = record.get('winner')
-    if winner in member_names:
-        return winner
-    return None
+
+    candidates.sort(reverse=True)
+    return candidates[0][2]
 
 
 def _is_image(filename: str) -> bool:

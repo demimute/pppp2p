@@ -22,6 +22,7 @@ from engine.persona_engine import (
     PERSONA_IDENTITY_VERSION,
 )
 from cache import clear_cache
+from app import _remember_group_winner, _restore_group_winner, PREFERENCES_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +173,25 @@ def test_group_with_persona_enhancement():
     assert g.persona_enabled == True
     assert g.persona_boost > 0
     assert g.members[1].persona_similarity > 0
+
+
+def test_restore_group_winner_prefers_previous_winner_when_group_members_change(tmp_path):
+    original = None
+    if PREFERENCES_PATH.exists():
+        original = PREFERENCES_PATH.read_text(encoding='utf-8')
+    try:
+        PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PREFERENCES_PATH.write_text('{"group_winners": {}, "winner_history": {}}', encoding='utf-8')
+        folder = str(tmp_path)
+        _remember_group_winner(folder, ['a.jpg', 'b.jpg'], 'a.jpg')
+        restored = _restore_group_winner(folder, ['a.jpg', 'b.jpg', 'c.jpg'])
+        assert restored == 'a.jpg'
+    finally:
+        if original is None:
+            if PREFERENCES_PATH.exists():
+                PREFERENCES_PATH.unlink()
+        else:
+            PREFERENCES_PATH.write_text(original, encoding='utf-8')
 
 
 # ---------------------------------------------------------------------------

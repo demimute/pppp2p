@@ -8,13 +8,13 @@ const MODE_PRESETS = {
   relaxed: {
     id: 'relaxed',
     label: '宽松',
-    strategy: 'phash',
-    threshold: 10,
+    strategy: 'dual',
+    threshold: 0.9,
     clipThreshold: 0.9,
-    phashThreshold: 11,
-    identityPenaltyStrength: 0.35,
-    identityDiffThreshold: 0.75,
-    looseThreshold: 0.82,
+    phashThreshold: 12,
+    identityPenaltyStrength: 0.3,
+    identityDiffThreshold: 0.72,
+    looseThreshold: 0.8,
   },
   standard: {
     id: 'standard',
@@ -205,18 +205,15 @@ function App() {
         await post('/api/embed', { folder: selectedFolder, images });
         setAnalysisProgress({ active: true, percent: 65, stage: '计算哈希' });
         await post('/api/hash', { folder: selectedFolder, images });
-      } else if (tuning.strategy === 'phash') {
-        setAnalysisProgress({ active: true, percent: 60, stage: '计算哈希' });
-        await post('/api/hash', { folder: selectedFolder, images });
       }
 
       setAnalysisProgress({ active: true, percent: 85, stage: '生成分组' });
       const result = await post('/api/groups', {
         folder: selectedFolder,
         strategy: tuning.strategy,
-        threshold: tuning.strategy === 'dual' ? tuning.clipThreshold : tuning.threshold,
-        clip_threshold: tuning.strategy === 'dual' ? tuning.clipThreshold : undefined,
-        phash_threshold: tuning.strategy === 'dual' ? tuning.phashThreshold : undefined,
+        threshold: tuning.clipThreshold,
+        clip_threshold: tuning.clipThreshold,
+        phash_threshold: tuning.phashThreshold,
         enhanced_persona: true,
         identity_penalty_strength: tuning.identityPenaltyStrength,
         identity_diff_threshold: tuning.identityDiffThreshold,

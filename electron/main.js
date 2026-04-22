@@ -27,7 +27,7 @@ const BACKEND_WARNING_PATTERNS = [
 ];
 app.setName('PPPP2P');
 
-const RUNTIME_ICON = path.join(__dirname, '../resources/icon-square.png');
+const RUNTIME_ICON = path.join(__dirname, '../resources/icon-dock.png');
 
 function appendRuntimeLog(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;

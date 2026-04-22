@@ -15,6 +15,45 @@ const STRATEGIES = [
   { id: 'filesize', name: '文件大小', desc: '按文件大小完全相同分组', threshold: null },
 ];
 
+const PERSONA_PRESETS = [
+  {
+    id: 'loose',
+    label: '宽松',
+    slider: 0,
+    weight: 0.35,
+    diffThreshold: 0.72,
+    description: '尽量保留疑似同人图片，适合先多看少删。',
+  },
+  {
+    id: 'balanced',
+    label: '标准',
+    slider: 1,
+    weight: 0.55,
+    diffThreshold: 0.8,
+    description: '在误并和漏并之间取平衡，适合作为默认方案。',
+  },
+  {
+    id: 'strict',
+    label: '严格',
+    slider: 2,
+    weight: 0.85,
+    diffThreshold: 0.88,
+    description: '更激进地区分异人，优先压低误并。',
+  },
+];
+
+function getPersonaPresetBySlider(sliderValue) {
+  return PERSONA_PRESETS.find((preset) => preset.slider === sliderValue) || PERSONA_PRESETS[1];
+}
+
+function getPersonaPresetByParams(weight, diffThreshold) {
+  return PERSONA_PRESETS.reduce((best, preset) => {
+    const bestDistance = Math.abs(best.weight - weight) + Math.abs(best.diffThreshold - diffThreshold);
+    const presetDistance = Math.abs(preset.weight - weight) + Math.abs(preset.diffThreshold - diffThreshold);
+    return presetDistance < bestDistance ? preset : best;
+  }, PERSONA_PRESETS[0]);
+}
+
 function App() {
   // Dark mode
   const [darkMode, setDarkMode] = useState(() => {
@@ -45,12 +84,14 @@ function App() {
   const [stats, setStats] = useState({ total_groups: 0, to_remove: 0, to_keep: 0 });
   const [intelligence, setIntelligence] = useState(null);
   // Person enhancement for dual strategy: { enabled: boolean, weight: number 0-1 }
-  const [personEnhance, setPersonEnhance] = useState({ enabled: true, weight: 0.5, diffThreshold: 0.72 });
+  const [personEnhance, setPersonEnhance] = useState({ enabled: true, weight: 0.55, diffThreshold: 0.8 });
+  const [personaPresetLevel, setPersonaPresetLevel] = useState(1);
   const [analysisMessage, setAnalysisMessage] = useState('');
   const [undoFeedback, setUndoFeedback] = useState(null); // {type: 'error'|'success', message: string}
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [pythonReady, setPythonReady] = useState(false);
   const [backendState, setBackendState] = useState({ running: false, source: 'unknown', message: '后端状态未知' });
+  const [analysisProgress, setAnalysisProgress] = useState({ active: false, percent: 0, stage: '' });
 
   // Compare panel state
   const [comparePanel, setComparePanel] = useState({ open: false, group: null, selectedIndex: 0 });
@@ -110,6 +151,11 @@ function App() {
     setIntelligence(null);
   }, [selectedStrategy]);
 
+  useEffect(() => {
+    const matchedPreset = getPersonaPresetByParams(personEnhance.weight, personEnhance.diffThreshold);
+    setPersonaPresetLevel(matchedPreset.slider);
+  }, [personEnhance.weight, personEnhance.diffThreshold]);
+
   // Fetch history on mount
   useEffect(() => {
     fetchHistory();
@@ -152,6 +198,7 @@ function App() {
 
     setIsAnalyzing(true);
     setAnalysisMessage('');
+    setAnalysisProgress({ active: true, percent: 5, stage: '准备分析...' });
     try {
       const currentStrategy = STRATEGIES.find((s) => s.id === selectedStrategy);
       const thresholdValue = selectedStrategy === 'dual'
@@ -161,16 +208,20 @@ function App() {
           }
         : (typeof overrideThreshold === 'number' ? overrideThreshold : threshold ?? currentStrategy?.threshold?.default);
 
+      setAnalysisProgress({ active: true, percent: 15, stage: '扫描照片...' });
       const scanResult = await post('/api/scan', { folder: selectedFolder });
       const images = scanResult?.images?.map((img) => img.name) || [];
 
       if (selectedStrategy === 'clip' || selectedStrategy === 'dual') {
+        setAnalysisProgress({ active: true, percent: selectedStrategy === 'dual' ? 40 : 65, stage: '提取视觉特征...' });
         await post('/api/embed', { folder: selectedFolder, images });
       }
       if (selectedStrategy === 'phash' || selectedStrategy === 'dual') {
+        setAnalysisProgress({ active: true, percent: selectedStrategy === 'dual' ? 65 : 65, stage: '计算感知哈希...' });
         await post('/api/hash', { folder: selectedFolder, images });
       }
 
+      setAnalysisProgress({ active: true, percent: 85, stage: '计算相似分组...' });
       const result = await post('/api/groups', {
         folder: selectedFolder,
         strategy: selectedStrategy,
@@ -193,6 +244,7 @@ function App() {
         setGroups(nextGroups);
         setStats(nextStats);
         setIntelligence(result.intelligence || null);
+        setAnalysisProgress({ active: true, percent: 100, stage: '分析完成' });
         setAnalysisMessage(
           nextGroups.length > 0
             ? `已找到 ${nextStats.total_groups} 组相似照片，待移除 ${nextStats.to_remove} 张`
@@ -201,9 +253,15 @@ function App() {
       }
     } catch (err) {
       console.error('Analysis error:', err);
+      setAnalysisProgress({ active: false, percent: 0, stage: '' });
       setAnalysisMessage('分析失败，请检查后端状态或目录权限');
     } finally {
       setIsAnalyzing(false);
+      setTimeout(() => {
+        setAnalysisProgress((prev) => prev.percent === 100
+          ? { active: false, percent: 0, stage: '' }
+          : prev);
+      }, 600);
     }
   };
 
@@ -545,64 +603,103 @@ function App() {
 
             {/* Two-phase controls - only when enabled */}
             <div className={personEnhance.enabled ? '' : 'opacity-50 pointer-events-none'}>
-
-              {/* Different-person suppression */}
-              <div className="mb-4">
+              <div className="mb-4 rounded-lg border border-purple-200 bg-white/70 px-4 py-4 dark:border-purple-800/70 dark:bg-slate-900/50">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-purple-600 dark:text-purple-300">不同人物强抑制</span>
+                  <span className="text-xs text-purple-600 dark:text-purple-300">人物区分强度</span>
                   <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
-                    {personEnhance.weight < 0.3 ? '弱' : personEnhance.weight < 0.7 ? '中' : '强'}
+                    {getPersonaPresetBySlider(personaPresetLevel).label}
                   </span>
                 </div>
                 <input
                   type="range"
                   min="0"
-                  max="1"
-                  step="0.05"
-                  value={personEnhance.weight}
-                  onChange={(e) => setPersonEnhance(prev => ({ ...prev, weight: parseFloat(e.target.value) }))}
+                  max="2"
+                  step="1"
+                  value={personaPresetLevel}
+                  onChange={(e) => {
+                    const nextPreset = getPersonaPresetBySlider(Number(e.target.value));
+                    setPersonaPresetLevel(nextPreset.slider);
+                    setPersonEnhance((prev) => ({
+                      ...prev,
+                      weight: nextPreset.weight,
+                      diffThreshold: nextPreset.diffThreshold,
+                    }));
+                  }}
                   className="w-full h-2 rounded-full appearance-none cursor-pointer"
                   style={{
-                    background: `linear-gradient(to right, #a855f7 0%, #6366f1 50%, #8b5cf6 100%)`,
+                    background: 'linear-gradient(to right, #22c55e 0%, #6366f1 50%, #ef4444 100%)',
                   }}
-                  aria-label="不同人物强抑制强度"
+                  aria-label="人物区分强度"
                 />
-                <div className="flex justify-between text-xs text-purple-400 mt-1">
-                  <span>弱</span>
-                  <span>中</span>
-                  <span>强</span>
+                <div className="mt-1 flex justify-between text-xs text-purple-400">
+                  {PERSONA_PRESETS.map((preset) => (
+                    <span key={preset.id}>{preset.label}</span>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  {getPersonaPresetBySlider(personaPresetLevel).description}
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 mb-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-purple-600 dark:text-purple-300">不同人物强抑制</span>
+                    <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
+                      {personEnhance.weight.toFixed(2)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={personEnhance.weight}
+                    onChange={(e) => setPersonEnhance(prev => ({ ...prev, weight: parseFloat(e.target.value) }))}
+                    className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                    style={{
+                      background: 'linear-gradient(to right, #a855f7 0%, #6366f1 50%, #8b5cf6 100%)',
+                    }}
+                    aria-label="不同人物强抑制强度"
+                  />
+                  <div className="flex justify-between text-xs text-purple-400 mt-1">
+                    <span>弱</span>
+                    <span>中</span>
+                    <span>强</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-purple-600 dark:text-purple-300">异人判定阈值</span>
+                    <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
+                      {personEnhance.diffThreshold.toFixed(2)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.72"
+                    max="0.90"
+                    step="0.01"
+                    value={personEnhance.diffThreshold}
+                    onChange={(e) => setPersonEnhance(prev => ({ ...prev, diffThreshold: parseFloat(e.target.value) }))}
+                    className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                    style={{
+                      background: 'linear-gradient(to right, #22c55e 0%, #f59e0b 50%, #ef4444 100%)',
+                    }}
+                    aria-label="异人判定阈值"
+                  />
+                  <div className="flex justify-between text-xs text-purple-400 mt-1">
+                    <span>0.72 保守</span>
+                    <span>标准</span>
+                    <span>0.90 激进</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-purple-600 dark:text-purple-300">异人判定阈值</span>
-                  <span className="text-sm font-bold text-purple-600 dark:text-purple-300">
-                    {personEnhance.diffThreshold.toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.72"
-                  max="0.90"
-                  step="0.01"
-                  value={personEnhance.diffThreshold}
-                  onChange={(e) => setPersonEnhance(prev => ({ ...prev, diffThreshold: parseFloat(e.target.value) }))}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
-                  style={{
-                    background: `linear-gradient(to right, #22c55e 0%, #f59e0b 50%, #ef4444 100%)`,
-                  }}
-                  aria-label="异人判定阈值"
-                />
-                <div className="flex justify-between text-xs text-purple-400 mt-1">
-                  <span>0.72 默认</span>
-                  <span>更敢判异人</span>
-                  <span>0.90 激进</span>
-                </div>
-                <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-                  阈值越高，`uncertain` 越容易被打成 `different`，误并会下降，但误杀同人近重复的风险会上升。
-                </p>
-              </div>
+              <p className="mb-4 text-[11px] text-gray-500 dark:text-gray-400">
+                主滑杆会联动这两个底层参数；如果你手动微调下面的滑杆，系统会自动把它归到最接近的预设方案，后端接口保持不变。
+              </p>
 
               {/* Same-person pose refinement is automatic until Phase 2 is implemented */}
               <div className="rounded-lg border border-dashed border-purple-200 bg-white/70 px-4 py-3 dark:border-purple-800/70 dark:bg-slate-900/50">
@@ -623,7 +720,7 @@ function App() {
             </div>
 
             <p className="mt-3 text-xs text-purple-400 dark:text-purple-500">
-              💡 现在可以同时调“不同人物强抑制”和“异人判定阈值”。前者控制惩罚强度，后者控制把 `uncertain` 收紧成 `different` 的激进程度。
+              💡 默认只需要调“人物区分强度”；底层仍然保留“不同人物强抑制”和“异人判定阈值”两个参数，便于精细微调。
             </p>
           </div>
         )}
@@ -661,7 +758,21 @@ function App() {
         </div>
 
         <div className={`mt-6 rounded-xl border px-4 py-3 text-sm ${pythonReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'}`}>
-          后端状态：{backendState.message}
+          <div>后端状态：{backendState.message}</div>
+          {analysisProgress.active && (
+            <div className="mt-2">
+              <div className="flex items-center justify-between text-xs">
+                <span>{analysisProgress.stage}</span>
+                <span>{analysisProgress.percent}%</span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded-full bg-white/70 dark:bg-black/20">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${analysisProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {(analysisMessage || error) && (
@@ -700,7 +811,7 @@ function App() {
                 <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                   {selectedStrategy === 'dual'
                     ? personEnhance.enabled
-                      ? `双保险 + 人物身份判别（抑制强度 ${Math.round(personEnhance.weight * 100)}%），CLIP 与 pHash 双阈值同时满足，同时启用人物身份甄别与姿态细化。`
+                      ? `双保险 + 人物身份判别（${getPersonaPresetByParams(personEnhance.weight, personEnhance.diffThreshold).label}，抑制 ${personEnhance.weight.toFixed(2)} / 阈值 ${personEnhance.diffThreshold.toFixed(2)}），CLIP 与 pHash 双阈值同时满足，同时启用人物身份甄别与姿态细化。`
                       : '双保险要求 CLIP 相似度与 pHash 距离两条阈值同时满足，适合对误删更敏感的场景。'
                     : intelligence.reason}
                 </div>

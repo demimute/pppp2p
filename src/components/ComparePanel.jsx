@@ -193,7 +193,7 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                 </p>
               </div>
               {/* Person identity state — new disambiguation model */}
-              {(selectedImage?.person_identity_state !== undefined || selectedImage?.persona_similarity !== undefined) && (
+              {selectedImage?.person_identity_state !== undefined && (
                 <div>
                   <span className="text-gray-500 dark:text-gray-400">人物判别</span>
                   <p className={`font-semibold ${
@@ -207,8 +207,7 @@ function ComparePanel({ open, group, selectedIndex, folder, onClose, onAction, o
                   }`}>
                     {selectedImage?.person_identity_state === 'same' ? '✓ 同人' :
                      selectedImage?.person_identity_state === 'different' ? '✗ 异人' :
-                     selectedImage?.person_identity_state === 'uncertain' ? '? 待定' :
-                     selectedImage?.persona_similarity !== undefined ? `🧑 ${Math.round(selectedImage.persona_similarity * 100)}%` : '—'}
+                     selectedImage?.person_identity_state === 'uncertain' ? '? 待定' : '人物待判'}
                   </p>
                   {selectedImage?.person_identity_state === 'same' && selectedImage?.pose_similarity !== undefined && (
                     <p className="text-xs text-gray-400 mt-0.5">

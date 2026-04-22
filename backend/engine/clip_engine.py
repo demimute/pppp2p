@@ -1,10 +1,12 @@
 """CLIP embedding engine for DedupStudio."""
 
+import logging
 import os
 import sys
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import List, Dict, Optional, Tuple
 
 # Add backend parent to path so we can import backend modules
 _backend_root = Path(__file__).parent.parent
@@ -14,16 +16,26 @@ if str(_backend_root) not in sys.path:
 import torch
 import open_clip
 from PIL import Image
-from typing import List, Dict, Optional, Tuple
 from cache import get_cache, set_cache
 
 # Determine device: MPS (Apple Silicon) > CPU
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 
+warnings.filterwarnings(
+    "ignore",
+    message=r"Warning: You are sending unauthenticated requests to the HF Hub.*",
+)
+logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
+
 # Global model cache
 _model = None
 _preprocess = None
 _model_ready = False
+MODEL_NAME = "ViT-B-32"
+PRETRAINED_TAG = "openai"
+LOCAL_MODEL_CANDIDATES = [
+    Path.home() / '.cache' / 'huggingface' / 'hub' / 'models--timm--vit_base_patch32_clip_224.openai',
+]
 
 
 def _load_and_preprocess_image(args: Tuple[Path, str, any]) -> Optional[Tuple[str, torch.Tensor]]:
@@ -49,10 +61,42 @@ def _warmup_model(model):
     _model_ready = True
 
 
+def _resolve_local_pretrained_path() -> Path:
+    for repo_dir in LOCAL_MODEL_CANDIDATES:
+        if not repo_dir.exists():
+            continue
+
+        snapshots_dir = repo_dir / 'snapshots'
+        if snapshots_dir.exists():
+            for snapshot in sorted(snapshots_dir.iterdir(), reverse=True):
+                for candidate in (
+                    snapshot / 'open_clip_pytorch_model.bin',
+                    snapshot / 'pytorch_model.bin',
+                    snapshot / 'model.safetensors',
+                    snapshot / 'open_clip_model.safetensors',
+                ):
+                    if candidate.exists() and candidate.is_file():
+                        return candidate
+
+        for candidate in repo_dir.rglob('*'):
+            if candidate.is_file() and candidate.name in {
+                'open_clip_pytorch_model.bin',
+                'pytorch_model.bin',
+                'model.safetensors',
+                'open_clip_model.safetensors',
+            }:
+                return candidate
+
+    raise RuntimeError(
+        '本地 CLIP 权重缺失。当前已禁用运行时联网下载，请先在本机缓存 ViT-B-32/openai 权重。'
+    )
+
+
 def _get_model():
     """Get or create the CLIP model (cached globally)."""
     global _model, _preprocess
     if _model is None:
+        local_pretrained = _resolve_local_pretrained_path()
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -60,8 +104,8 @@ def _get_model():
                 category=UserWarning,
             )
             model, _, preprocess = open_clip.create_model_and_transforms(
-                "ViT-B/32",
-                pretrained="openai",
+                MODEL_NAME,
+                pretrained=str(local_pretrained),
                 device=DEVICE,
             )
         _model = model

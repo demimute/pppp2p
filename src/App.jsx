@@ -329,23 +329,6 @@ function App() {
     }
   };
 
-  const handleSetDefaultWinner = async (groupId, memberName) => {
-    const nextGroups = updateSingleGroup(groupId, (g) => ({
-      ...g,
-      winner: memberName,
-      winner_size: g.members.find((m) => m.name === memberName)?.size || g.winner_size,
-    }));
-    const updatedGroup = nextGroups.find((g) => g.id === groupId);
-    if (updatedGroup) {
-      await persistWinnerPreference(updatedGroup.members, memberName);
-    }
-  };
-
-  const handlePromoteOptimal = async (memberName) => {
-    if (!memberName || !comparePanel.group) return;
-    await handleSetDefaultWinner(comparePanel.group.id, memberName);
-  };
-
   const handleUndo = async () => {
     const targetFolder = selectedFolder || history[0]?.folder;
     if (!targetFolder) return;
@@ -531,7 +514,6 @@ function App() {
         onAction={handleCompareAction}
         onSkip={handleCompareSkip}
         onNavigate={handleCompareNavigate}
-        onPromoteOptimal={handlePromoteOptimal}
         onToggleRemove={handleToggleRemoveFromGrid}
       />
 

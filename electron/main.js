@@ -85,6 +85,8 @@ function showFatalError(title, error) {
 }
 
 function createWindow() {
+  const runtimeIcon = path.join(__dirname, '../resources/icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -100,6 +102,7 @@ function createWindow() {
     show: isDev,
     backgroundColor: '#f9fafb',
     titleBarStyle: 'defaultInset',
+    icon: fs.existsSync(runtimeIcon) ? runtimeIcon : undefined,
   });
 
   const menuTemplate = [

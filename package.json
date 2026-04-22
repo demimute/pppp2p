@@ -27,7 +27,8 @@
     },
     "files": [
       "electron/**/*",
-      "dist/**/*"
+      "dist/**/*",
+      "resources/**/*"
     ],
     "mac": {
       "target": "dmg",

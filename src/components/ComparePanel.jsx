@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { toPreviewUrl } from '../utils/fileUrl.js';
 
-function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, onNavigate, onPromoteOptimal, onToggleRemove }) {
+function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, onNavigate, onToggleRemove }) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -61,8 +61,6 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const canPromote = selectedImage?.name !== group.winner;
-
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -70,9 +68,6 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
         <div className="flex h-[96vh] w-full max-w-[1680px] flex-col overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
           <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-            <button onClick={() => onPromoteOptimal?.(selectedImage?.name)} disabled={!canPromote} className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
-              设为默认保留项
-            </button>
             <button onClick={() => onAction('keep')} className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-gray-50 dark:border-gray-700 dark:text-white dark:hover:bg-gray-800">
               保留
             </button>

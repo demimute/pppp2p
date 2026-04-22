@@ -25,6 +25,7 @@ const BACKEND_WARNING_PATTERNS = [
   'Warning: You are sending unauthenticated requests to the HF Hub',
   'WARNING:huggingface_hub.utils._http:',
 ];
+const RUNTIME_ICON = path.join(__dirname, '../resources/icon.png');
 
 function appendRuntimeLog(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
@@ -85,7 +86,9 @@ function showFatalError(title, error) {
 }
 
 function createWindow() {
-  const runtimeIcon = path.join(__dirname, '../resources/icon.png');
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(RUNTIME_ICON)) {
+    app.dock.setIcon(RUNTIME_ICON);
+  }
 
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -102,7 +105,7 @@ function createWindow() {
     show: isDev,
     backgroundColor: '#f9fafb',
     titleBarStyle: 'defaultInset',
-    icon: fs.existsSync(runtimeIcon) ? runtimeIcon : undefined,
+    icon: fs.existsSync(RUNTIME_ICON) ? RUNTIME_ICON : undefined,
   });
 
   const menuTemplate = [

@@ -7,7 +7,7 @@ const SCENE_LABELS = {
   chat: '聊天图片',
 };
 
-function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
+function GroupCard({ group, groupIndex, onClick }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [brokenImages, setBrokenImages] = useState({});
 
@@ -18,165 +18,107 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
     }
   }, [onClick]);
 
-  const getSimilarityLabel = (member, strategy) => {
-    if (strategy === 'clip') {
-      return `${(member.similarity * 100).toFixed(1)}%`;
-    }
-    if (strategy === 'phash') {
-      return `距离 ${member.hamming_distance ?? 0}`;
-    }
-    if (strategy === 'dual') {
-      return `${(member.similarity * 100).toFixed(1)}% · 距离 ${member.hamming_distance ?? 0}`;
-    }
-    return `${(member.similarity * 100).toFixed(1)}%`;
-  };
-
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const visibleMembers = group.members.filter((member) => {
+  const visibleMembers = (group.members || []).filter((member) => {
     if (!member?.name) return false;
     if (member.removed || member.hidden) return false;
     return !!(member.path || member.name);
   });
-  const sceneLabel = SCENE_LABELS[group.group_scene_type] || null;
 
   if (visibleMembers.length < 2) {
     return null;
   }
 
+  const sceneLabel = SCENE_LABELS[group.group_scene_type] || null;
+  const winner = visibleMembers.find((member) => member.name === group.winner);
   const toRemoveCount = visibleMembers.filter((member) => member.to_remove).length;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      {/* Group header */}
-      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="bg-primary/10 text-primary text-sm font-semibold px-2 py-0.5 rounded">
-            第{groupIndex + 1}组
-          </span>
-          <span className="text-sm text-gray-600 dark:text-gray-400">
-            {visibleMembers.length} 张相似
-          </span>
-          {sceneLabel && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-              {sceneLabel}
+    <div className="overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex flex-col gap-4 border-b border-gray-100 px-5 py-4 dark:border-gray-800 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+              第 {groupIndex + 1} 组
             </span>
-          )}
-          {group.winner_size && (
-            <span className="text-xs text-gray-500 dark:text-gray-500">
-              最优项: {formatFileSize(group.winner_size)}
-            </span>
-          )}
+            {sceneLabel && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                {sceneLabel}
+              </span>
+            )}
+            {toRemoveCount > 0 && (
+              <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                建议移除 {toRemoveCount} 张
+              </span>
+            )}
+          </div>
+          <p className="mt-3 text-base font-semibold text-gray-900 dark:text-white">
+            {visibleMembers.length} 张相似照片，建议保留 1 张
+          </p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {winner ? `当前保留：${winner.name}` : '点击任意照片查看并调整保留项'}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          {toRemoveCount > 0 && (
-            <span className="badge badge-danger">
-              {toRemoveCount} 张待移除
-            </span>
-          )}
+
+        <div className="rounded-2xl bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:bg-gray-950/40 dark:text-gray-300">
+          <div>保留项大小：<span className="font-semibold text-gray-900 dark:text-white">{winner ? formatFileSize(winner.size || group.winner_size || 0) : '—'}</span></div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">点击图片进入详情，改保留项或接受建议。</div>
         </div>
       </div>
 
-      {/* Thumbnails */}
-      <div className="p-4">
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+      <div className="p-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {visibleMembers.map((member, index) => {
             const isWinner = member.name === group.winner;
             const isMarkedForRemoval = member.to_remove;
             const isHovered = hoveredIndex === index;
 
             return (
-              <div
+              <button
                 key={member.name}
-                className={`
-                  relative group rounded-lg overflow-hidden cursor-pointer
-                  transition-all duration-200
-                  ${isWinner ? 'ring-2 ring-green-500 ring-offset-2' : ''}
-                  ${isMarkedForRemoval ? 'opacity-60' : ''}
-                  ${isHovered ? 'scale-105 shadow-lg z-10' : ''}
-                `}
+                type="button"
+                className={`relative overflow-hidden rounded-[22px] border bg-gray-50 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:bg-gray-950/30 ${isWinner ? 'border-emerald-400 shadow-[0_0_0_3px_rgba(16,185,129,0.14)]' : 'border-gray-200 dark:border-gray-800'} ${isMarkedForRemoval ? 'opacity-75' : ''} ${isHovered ? 'scale-[1.02] shadow-lg' : ''}`}
                 onClick={() => onClick(index)}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 onKeyDown={(e) => handleKeyDown(e, index)}
-                tabIndex={0}
-                role="button"
-                aria-label={`${member.name}, 相似度 ${getSimilarityLabel(member, selectedStrategy)}${isWinner ? ', 最优项' : ''}`}
+                aria-label={`${member.name}${isWinner ? '，当前保留项' : ''}`}
               >
-                {/* Thumbnail */}
-                <div className="aspect-square bg-gray-100 dark:bg-gray-700 relative overflow-hidden">
-                  {/* Placeholder image */}
+                <div className="relative aspect-square overflow-hidden bg-gray-100 dark:bg-gray-800">
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-2xl opacity-30">
-                      {isWinner ? '✓' : '🖼️'}
-                    </span>
+                    <span className="text-2xl opacity-30">{isWinner ? '✓' : '🖼️'}</span>
                   </div>
-                  {/* In real app, this would be an actual image */}
                   <img
                     src={toPreviewUrl(member.path || member.name)}
                     alt={member.name}
-                    className={`absolute inset-0 w-full h-full object-cover ${brokenImages[member.name] ? 'hidden' : ''}`}
+                    className={`absolute inset-0 h-full w-full object-cover ${brokenImages[member.name] ? 'hidden' : ''}`}
                     loading="lazy"
-                    onError={() => {
-                      setBrokenImages((prev) => ({ ...prev, [member.name]: true }));
-                    }}
+                    onError={() => setBrokenImages((prev) => ({ ...prev, [member.name]: true }))}
                   />
 
-                  {/* Overlay on hover */}
-                  <div className={`
-                    absolute inset-0 bg-black/50 flex items-center justify-center
-                    transition-opacity duration-200
-                    ${isHovered ? 'opacity-100' : 'opacity-0'}
-                  `}>
-                    <span className="text-white text-xs">点击查看</span>
-                  </div>
-
-                  {/* Winner badge */}
                   {isWinner && (
-                    <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded font-medium">
-                      ✓ 最优项
+                    <div className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white">
+                      保留
                     </div>
                   )}
 
-                  {/* Remove badge */}
                   {isMarkedForRemoval && (
-                    <div className="absolute top-1 right-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded font-medium">
-                      ×
-                    </div>
-                  )}
-
-                  {/* Person identity state badge — new disambiguation model */}
-                  {member.person_identity_state !== undefined && (
-                    <div className={`absolute bottom-1 left-1 text-xs px-1 py-0.5 rounded font-medium ${
-                      member.person_identity_state === 'same'
-                        ? 'bg-green-500 text-white'
-                        : member.person_identity_state === 'different'
-                        ? 'bg-red-500 text-white'
-                        : member.person_identity_state === 'uncertain'
-                        ? 'bg-yellow-500 text-white'
-                        : 'bg-gray-400 text-white'
-                    }`}>
-                      {member.person_identity_state === 'same' ? '✓ 同人' :
-                       member.person_identity_state === 'different' ? '✗ 异人' :
-                       member.person_identity_state === 'uncertain' ? '? 待定' : '人物待判'}
+                    <div className="absolute right-2 top-2 rounded-full bg-red-500 px-2 py-1 text-[11px] font-semibold text-white">
+                      移除
                     </div>
                   )}
                 </div>
 
-                {/* Similarity label */}
-                <div className="p-1.5 bg-gray-50 dark:bg-gray-700/50 text-center">
-                  <span className={`
-                    text-xs font-medium
-                    ${isWinner ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}
-                  `}>
-                    {getSimilarityLabel(member, selectedStrategy)}
-                  </span>
+                <div className="px-3 py-3">
+                  <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{member.name}</p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{formatFileSize(member.size || 0)}</p>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>

@@ -9,6 +9,17 @@ const MODE_PRESETS = {
     id: 'relaxed',
     label: '宽松',
     strategy: 'dual',
+    threshold: 0.88,
+    clipThreshold: 0.88,
+    phashThreshold: 13,
+    identityPenaltyStrength: 0.18,
+    identityDiffThreshold: 0.68,
+    looseThreshold: 0.78,
+  },
+  standard: {
+    id: 'standard',
+    label: '标准',
+    strategy: 'dual',
     threshold: 0.9,
     clipThreshold: 0.9,
     phashThreshold: 12,
@@ -16,9 +27,9 @@ const MODE_PRESETS = {
     identityDiffThreshold: 0.72,
     looseThreshold: 0.8,
   },
-  standard: {
-    id: 'standard',
-    label: '标准',
+  strict: {
+    id: 'strict',
+    label: '严格',
     strategy: 'dual',
     threshold: 0.92,
     clipThreshold: 0.92,
@@ -26,17 +37,6 @@ const MODE_PRESETS = {
     identityPenaltyStrength: 0.55,
     identityDiffThreshold: 0.8,
     looseThreshold: 0.85,
-  },
-  strict: {
-    id: 'strict',
-    label: '严格',
-    strategy: 'dual',
-    threshold: 0.94,
-    clipThreshold: 0.94,
-    phashThreshold: 8,
-    identityPenaltyStrength: 0.85,
-    identityDiffThreshold: 0.88,
-    looseThreshold: 0.88,
   },
 };
 

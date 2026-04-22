@@ -95,7 +95,7 @@ function App() {
   const [backendState, setBackendState] = useState({ running: false, source: 'unknown', message: '后端状态未知' });
   const [analysisProgress, setAnalysisProgress] = useState({ active: false, percent: 0, stage: '' });
   const [comparePanel, setComparePanel] = useState({ open: false, group: null, selectedIndex: 0 });
-  const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, groups: [], title: '确认移除', stats: null, onConfirm: null });
   const [history, setHistory] = useState([]);
   const [isRemoving, setIsRemoving] = useState(false);
 
@@ -186,6 +186,26 @@ function App() {
     setTuning((prev) => ({ ...prev, [key]: value }));
   };
 
+  const recalcStatsFromGroups = (nextGroups) => {
+    const toRemove = nextGroups.flatMap((g) => g.members).filter((m) => m.to_remove).length;
+    setStats((prevStats) => ({
+      ...prevStats,
+      total_groups: nextGroups.length,
+      to_remove: toRemove,
+      to_keep: Math.max(imageCount - toRemove, 0),
+    }));
+  };
+
+  const persistWinnerPreference = async (groupMembers, memberName) => {
+    if (!selectedFolder || !groupMembers?.length || !memberName) return;
+    await post('/api/preferences/winner', {
+      folder: selectedFolder,
+      members: groupMembers.map((m) => m.name),
+      winner: memberName,
+      states: Object.fromEntries(groupMembers.map((m) => [m.name, !!m.to_remove])),
+    });
+  };
+
   const handleStartAnalysis = async () => {
     if (!selectedFolder) return;
 
@@ -244,54 +264,36 @@ function App() {
     setComparePanel({ open: true, group, selectedIndex: index });
   };
 
-  const handleCompareAction = (action) => {
+  const updateSingleGroup = (groupId, updater) => {
+    const nextGroups = groupsRef.current.map((g) => (g.id === groupId ? updater(g) : g));
+    setGroups(nextGroups);
+    recalcStatsFromGroups(nextGroups);
+    return nextGroups;
+  };
+
+  const handleCompareAction = async (action) => {
     const { group, selectedIndex } = comparePanel;
     if (!group) return;
 
-    const isWinnerSelection = group.winner === group.members?.[selectedIndex]?.name;
-    const willBeMarked = action === 'remove' && !isWinnerSelection;
-    let nextSelectedIndex = selectedIndex;
+    const nextGroups = updateSingleGroup(group.id, (g) => ({
+      ...g,
+      members: g.members.map((m, i) => (i === selectedIndex ? { ...m, to_remove: action === 'remove' } : m)),
+    }));
 
-    setGroups((prev) => {
-      let statsDelta = null;
-      return prev.map((g) => {
-        if (g.id !== group.id) return g;
-
-        const wasMarked = !!g.members?.[selectedIndex]?.to_remove;
-        if (wasMarked !== willBeMarked) {
-          statsDelta = willBeMarked ? 1 : -1;
-        }
-
-        const nextMembers = g.members.map((m, i) => (
-          i === selectedIndex ? { ...m, to_remove: willBeMarked } : m
-        ));
-
-        if (selectedIndex < nextMembers.length - 1) {
-          nextSelectedIndex = selectedIndex + 1;
-        }
-
-        if (statsDelta !== null) {
-          setStats((prevStats) => ({
-            ...prevStats,
-            to_remove: Math.max(0, prevStats.to_remove + statsDelta),
-            to_keep: Math.max(0, prevStats.to_keep - statsDelta),
-          }));
-        }
-
-        return { ...g, members: nextMembers };
-      });
-    });
-
-    if (isWinnerSelection && action === 'remove') {
-      setUndoFeedback({ type: 'error', message: '保留项不能直接移除' });
-      return;
+    const updatedGroup = nextGroups.find((g) => g.id === group.id);
+    if (updatedGroup) {
+      await persistWinnerPreference(updatedGroup.members, updatedGroup.winner);
     }
 
-    setComparePanel((prev) => ({
-      ...prev,
-      selectedIndex: nextSelectedIndex,
-      group: groupsRef.current.find((g) => g.id === group.id) || prev.group,
-    }));
+    if (selectedIndex < group.members.length - 1) {
+      setComparePanel((prev) => ({
+        ...prev,
+        selectedIndex: prev.selectedIndex + 1,
+        group: updatedGroup || prev.group,
+      }));
+    } else {
+      setComparePanel((prev) => ({ ...prev, group: updatedGroup || prev.group }));
+    }
   };
 
   const handleCompareSkip = () => {
@@ -306,66 +308,43 @@ function App() {
     setComparePanel((prev) => ({ ...prev, selectedIndex: index }));
   };
 
-  const persistWinnerPreference = async (groupMembers, memberName) => {
-    if (!selectedFolder || !groupMembers?.length || !memberName) return;
-    await post('/api/preferences/winner', {
-      folder: selectedFolder,
-      members: groupMembers.map((m) => m.name),
-      winner: memberName,
-      states: Object.fromEntries(groupMembers.map((m) => [m.name, !!m.to_remove])),
-    });
-  };
-
-  const recalcStatsFromGroups = (nextGroups) => {
-    const toRemove = nextGroups.flatMap((g) => g.members).filter((m) => m.to_remove).length;
-    setStats((prevStats) => ({
-      ...prevStats,
-      to_remove: toRemove,
-      to_keep: Math.max(imageCount - toRemove, 0),
-    }));
-  };
-
-  const handleSetWinnerFromGrid = async (groupId, memberName) => {
-    const targetGroup = groupsRef.current.find((g) => g.id === groupId);
-    if (!targetGroup || !memberName) return;
-    const nextGroups = groupsRef.current.map((g) => {
-      if (g.id !== groupId) return g;
-      return {
-        ...g,
-        winner: memberName,
-        winner_size: g.members.find((m) => m.name === memberName)?.size || g.winner_size,
-        members: g.members.map((m) => ({ ...m, to_remove: m.name === memberName ? false : m.to_remove })),
-      };
-    });
-    setGroups(nextGroups);
-    recalcStatsFromGroups(nextGroups);
-    await persistWinnerPreference(targetGroup.members, memberName);
-  };
-
   const handleToggleRemoveFromGrid = async (groupId, memberName) => {
-    const targetGroup = groupsRef.current.find((g) => g.id === groupId);
-    const nextGroups = groupsRef.current.map((g) => {
-      if (g.id !== groupId) return g;
-      return {
-        ...g,
-        members: g.members.map((m) => {
-          if (m.name !== memberName) return m;
-          if (m.name === g.winner) return { ...m, to_remove: false };
-          return { ...m, to_remove: !m.to_remove };
-        }),
-      };
-    });
-    setGroups(nextGroups);
-    recalcStatsFromGroups(nextGroups);
-    const updatedGroup = nextGroups.find((g) => g.id === groupId) || targetGroup;
+    const nextGroups = updateSingleGroup(groupId, (g) => ({
+      ...g,
+      members: g.members.map((m) => (m.name === memberName ? { ...m, to_remove: !m.to_remove } : m)),
+    }));
+    const updatedGroup = nextGroups.find((g) => g.id === groupId);
     if (updatedGroup) {
       await persistWinnerPreference(updatedGroup.members, updatedGroup.winner);
     }
   };
 
+  const handleApplyGroupAction = async (groupId, action) => {
+    const nextGroups = updateSingleGroup(groupId, (g) => ({
+      ...g,
+      members: g.members.map((m) => ({ ...m, to_remove: action === 'remove_all' })),
+    }));
+    const updatedGroup = nextGroups.find((g) => g.id === groupId);
+    if (updatedGroup) {
+      await persistWinnerPreference(updatedGroup.members, updatedGroup.winner);
+    }
+  };
+
+  const handleSetDefaultWinner = async (groupId, memberName) => {
+    const nextGroups = updateSingleGroup(groupId, (g) => ({
+      ...g,
+      winner: memberName,
+      winner_size: g.members.find((m) => m.name === memberName)?.size || g.winner_size,
+    }));
+    const updatedGroup = nextGroups.find((g) => g.id === groupId);
+    if (updatedGroup) {
+      await persistWinnerPreference(updatedGroup.members, memberName);
+    }
+  };
+
   const handlePromoteOptimal = async (memberName) => {
     if (!memberName || !comparePanel.group) return;
-    await handleSetWinnerFromGrid(comparePanel.group.id, memberName);
+    await handleSetDefaultWinner(comparePanel.group.id, memberName);
   };
 
   const handleUndo = async () => {
@@ -386,10 +365,10 @@ function App() {
     }
   };
 
-  const handleExecuteRemove = async () => {
+  const handleExecuteRemove = async (targetGroups = groups) => {
     if (!selectedFolder || isRemoving) return;
 
-    const moves = groups
+    const moves = targetGroups
       .flatMap((g) => g.members)
       .filter((m) => m.to_remove)
       .map((m) => ({ name: m.name, action: 'remove' }));
@@ -409,7 +388,7 @@ function App() {
 
       if (result?.success) {
         setUndoFeedback({ type: 'success', message: `已移除 ${result.moved ?? moves.length} 张` });
-        setConfirmDialog({ open: false });
+        setConfirmDialog({ open: false, groups: [], title: '确认移除', stats: null, onConfirm: null });
         await fetchHistory();
         await handleStartAnalysis();
       } else {
@@ -420,13 +399,31 @@ function App() {
     }
   };
 
-  const openRemoveConfirm = () => {
-    const toRemove = groups.flatMap((g) => g.members).filter((m) => m.to_remove);
+  const openRemoveConfirm = (targetGroups = groups, title = '确认移除') => {
+    const toRemove = targetGroups.flatMap((g) => g.members).filter((m) => m.to_remove).length;
     if (toRemove.length === 0) {
       setUndoFeedback({ type: 'error', message: '没有待移除照片' });
       return;
     }
-    setConfirmDialog({ open: true });
+    setConfirmDialog({
+      open: true,
+      groups: targetGroups,
+      title,
+      stats: {
+        total_groups: targetGroups.length,
+        to_remove: toRemove,
+        to_keep: Math.max(imageCount - toRemove, 0),
+      },
+      onConfirm: () => handleExecuteRemove(targetGroups),
+    });
+  };
+
+  const handleRequestBulkRemoveConfirm = (group) => {
+    const targetGroup = {
+      ...group,
+      members: group.members.map((m) => ({ ...m, to_remove: true })),
+    };
+    openRemoveConfirm([targetGroup], `确认整组移除 · 第 ${group.id} 组`);
   };
 
   const latestEntry = history[0];
@@ -453,7 +450,7 @@ function App() {
               <button type="button" onClick={handleStartAnalysis} disabled={!selectedFolder || isAnalyzing || !pythonReady} className="btn btn-primary whitespace-nowrap">
                 {isAnalyzing ? '分析中' : '开始分析'}
               </button>
-              <button type="button" onClick={openRemoveConfirm} disabled={!selectedFolder || stats.to_remove === 0 || isRemoving} className="btn btn-danger whitespace-nowrap">
+              <button type="button" onClick={() => openRemoveConfirm(groups)} disabled={!selectedFolder || stats.to_remove === 0 || isRemoving} className="btn btn-danger whitespace-nowrap">
                 执行清理
               </button>
               <button type="button" onClick={handleUndo} disabled={!latestEntry || latestEntry.undone} className="btn btn-secondary whitespace-nowrap">
@@ -527,7 +524,13 @@ function App() {
         </section>
 
         <main className="mt-4">
-          <GroupGrid groups={groups} onGroupClick={handleGroupClick} onToggleRemove={handleToggleRemoveFromGrid} onSetWinner={handleSetWinnerFromGrid} />
+          <GroupGrid
+            groups={groups}
+            onGroupClick={handleGroupClick}
+            onToggleRemove={handleToggleRemoveFromGrid}
+            onApplyGroupAction={handleApplyGroupAction}
+            onRequestBulkRemoveConfirm={handleRequestBulkRemoveConfirm}
+          />
         </main>
       </div>
 
@@ -544,10 +547,11 @@ function App() {
 
       <ConfirmDialog
         open={confirmDialog.open}
-        groups={groups}
-        stats={stats}
-        onConfirm={handleExecuteRemove}
-        onCancel={() => setConfirmDialog({ open: false })}
+        groups={confirmDialog.groups}
+        stats={confirmDialog.stats}
+        title={confirmDialog.title}
+        onConfirm={confirmDialog.onConfirm || (() => {})}
+        onCancel={() => setConfirmDialog({ open: false, groups: [], title: '确认移除', stats: null, onConfirm: null })}
       />
     </div>
   );

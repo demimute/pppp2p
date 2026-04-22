@@ -1,7 +1,7 @@
 import React from 'react';
 import GroupCard from './GroupCard.jsx';
 
-function GroupGrid({ groups, onGroupClick, selectedStrategy }) {
+function GroupGrid({ groups, onGroupClick }) {
   const visibleGroups = (groups || []).filter((group) => {
     const visibleMembers = (group.members || []).filter((member) => {
       if (!member?.name) return false;
@@ -13,24 +13,20 @@ function GroupGrid({ groups, onGroupClick, selectedStrategy }) {
 
   if (visibleGroups.length === 0) {
     return (
-      <div className="text-center py-12">
-        <div className="text-5xl mb-4">📭</div>
-        <p className="text-gray-500 dark:text-gray-400">
-          暂无相似组，点击"开始分析"扫描重复照片
-        </p>
+      <div className="rounded-[22px] border border-dashed border-gray-300 bg-white px-6 py-20 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+        暂无相似组，点击上方“开始分析”
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {visibleGroups.map((group, groupIndex) => (
         <GroupCard
           key={group.id}
           group={group}
           groupIndex={groupIndex}
           onClick={(memberIndex) => onGroupClick(group, memberIndex)}
-          selectedStrategy={selectedStrategy}
         />
       ))}
     </div>

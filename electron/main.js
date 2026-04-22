@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const net = require('net');
 const { spawn } = require('child_process');
 
@@ -16,6 +17,7 @@ let backendStatus = {
 const BACKEND_PORT = 18765;
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 const useViteDevServer = process.env.DEDUP_USE_VITE_DEV_SERVER === '1';
+const RUNTIME_LOG = path.join(os.tmpdir(), 'dedupstudio-electron.log');
 const BACKEND_WARNING_PATTERNS = [
   'UserWarning:',
   'QuickGELU mismatch',
@@ -23,6 +25,22 @@ const BACKEND_WARNING_PATTERNS = [
   'Warning: You are sending unauthenticated requests to the HF Hub',
   'WARNING:huggingface_hub.utils._http:',
 ];
+
+function appendRuntimeLog(message) {
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  try {
+    fs.appendFileSync(RUNTIME_LOG, line);
+  } catch (error) {
+    console.error('[Runtime log write failed]:', error);
+  }
+}
+
+function trace(message, payload) {
+  const suffix = payload === undefined ? '' : ` ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`;
+  const finalMessage = `${message}${suffix}`;
+  console.log(finalMessage);
+  appendRuntimeLog(finalMessage);
+}
 
 function updateBackendStatus(patch = {}) {
   backendStatus = { ...backendStatus, ...patch };
@@ -72,6 +90,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    title: 'PPPP2P',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -134,11 +153,11 @@ function createWindow() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error('[Renderer did-fail-load]:', { errorCode, errorDescription, validatedURL });
+    trace('[Renderer did-fail-load]:', { errorCode, errorDescription, validatedURL });
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[Renderer did-finish-load]:', mainWindow.webContents.getURL());
+    trace('[Renderer did-finish-load]:', mainWindow.webContents.getURL());
     if (!mainWindow?.isVisible()) {
       mainWindow.show();
     }
@@ -146,18 +165,22 @@ function createWindow() {
   });
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    console.error('[Renderer process gone]:', details);
+    trace('[Renderer process gone]:', details);
     if (!isQuitting) {
       showFatalError('Renderer 进程异常退出', JSON.stringify(details, null, 2));
     }
   });
 
   mainWindow.on('unresponsive', () => {
-    console.error('[Main window unresponsive]');
+    trace('[Main window unresponsive]');
+  });
+
+  mainWindow.on('close', () => {
+    trace('[Main window close event]');
   });
 
   loadRenderer(mainWindow).catch((error) => {
-    console.error('[Renderer load error]:', error);
+    trace('[Renderer load error]:', String(error?.stack || error?.message || error));
     mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
       <html>
         <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; background: #f8fafc; color: #111827;">
@@ -173,6 +196,7 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    trace('[Main window closed event]');
     mainWindow = null;
   });
 }
@@ -218,7 +242,7 @@ async function startPythonBackend() {
 
   pythonProcess.stdout.on('data', (data) => {
     const msg = data.toString().trim();
-    console.log('[Python stdout]:', msg);
+    trace('[Python stdout]:', msg);
     if (mainWindow && msg.includes('Running on')) {
       updateBackendStatus({
         running: true,
@@ -231,7 +255,7 @@ async function startPythonBackend() {
   pythonProcess.stderr.on('data', async (data) => {
     const message = data.toString();
     const normalizedMessage = message.trim();
-    console.error('[Python stderr]:', message);
+    trace('[Python stderr]:', normalizedMessage);
 
     if (BACKEND_WARNING_PATTERNS.some((pattern) => normalizedMessage.includes(pattern))) {
       const backendReady = await isPortOpen(BACKEND_PORT);
@@ -283,7 +307,7 @@ async function startPythonBackend() {
   });
 
   pythonProcess.on('error', (err) => {
-    console.error('[Python process error]:', err);
+    trace('[Python process error]:', String(err?.stack || err?.message || err));
     pythonProcess = null;
     backendManaged = false;
     updateBackendStatus({
@@ -294,7 +318,7 @@ async function startPythonBackend() {
   });
 
   pythonProcess.on('exit', (code) => {
-    console.log(`[Python process exited with code ${code}]`);
+    trace('[Python process exited]:', { code });
     pythonProcess = null;
     backendManaged = false;
     updateBackendStatus({
@@ -358,7 +382,7 @@ ipcMain.handle('api-call', async (_event, { method, endpoint, body }) => {
 });
 
 app.on('child-process-gone', (_event, details) => {
-  console.error('[Child process gone]:', details);
+  trace('[Child process gone]:', details);
 });
 
 process.on('uncaughtException', (error) => {
@@ -369,7 +393,30 @@ process.on('unhandledRejection', (reason) => {
   showFatalError('主进程未处理 Promise 异常', reason);
 });
 
+app.on('browser-window-created', () => {
+  trace('[Browser window created]');
+});
+
+app.on('before-quit', () => {
+  trace('[App before-quit]');
+  isQuitting = true;
+  if (pythonProcess) {
+    pythonProcess.kill('SIGTERM');
+    pythonProcess = null;
+    backendManaged = false;
+  }
+});
+
+app.on('will-quit', () => {
+  trace('[App will-quit]');
+});
+
+app.on('quit', (_event, exitCode) => {
+  trace('[App quit]:', { exitCode });
+});
+
 app.whenReady().then(async () => {
+  trace('[App ready]');
   protocol.registerFileProtocol('local-file', (request, callback) => {
     const url = request.url.replace('local-file://', '');
     callback({ path: decodeURIComponent(url) });
@@ -386,6 +433,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  trace('[App window-all-closed]', { isDev, isQuitting, platform: process.platform });
   if (isDev && !isQuitting) {
     return;
   }
@@ -396,14 +444,5 @@ app.on('window-all-closed', () => {
   }
   if (process.platform !== 'darwin') {
     app.quit();
-  }
-});
-
-app.on('before-quit', () => {
-  isQuitting = true;
-  if (pythonProcess) {
-    pythonProcess.kill('SIGTERM');
-    pythonProcess = null;
-    backendManaged = false;
   }
 });

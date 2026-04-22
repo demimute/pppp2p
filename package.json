@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "com.dedupstudio.app",
-    "productName": "DedupStudio",
+    "productName": "PPPP2P",
     "directories": {
       "output": "dist-electron"
     },

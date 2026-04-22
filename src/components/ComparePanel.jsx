@@ -1,7 +1,13 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import { toPreviewUrl } from '../utils/fileUrl.js';
 
 function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, onNavigate, onPromoteOptimal }) {
+  const [zoom, setZoom] = useState(1);
+
+  useEffect(() => {
+    setZoom(1);
+  }, [selectedIndex, open]);
+
   const handleKeyDown = useCallback((e) => {
     if (!open || !group) return;
 
@@ -29,47 +35,51 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  if (!open || !group) {
-    return null;
-  }
+  const selectedImage = useMemo(() => group?.members?.[selectedIndex], [group, selectedIndex]);
+  const winnerImage = useMemo(() => group?.members?.find((m) => m.name === group?.winner), [group]);
 
-  const selectedImage = group.members[selectedIndex];
-  const winnerImage = group.members.find((m) => m.name === group.winner);
-
-  if (!selectedImage || !winnerImage) {
+  if (!open || !group || !selectedImage || !winnerImage) {
     return null;
   }
 
   const formatFileSize = (bytes) => {
-    if (!bytes) return 'Unknown';
+    if (!bytes) return '—';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const getHintText = () => {
-    if (selectedImage.name === group.winner) {
-      return '这张是当前保留项。可以继续保留，或切到别的图片重新指定。';
-    }
-    return '如果这张更清晰、更完整，直接设为保留项；否则保持移除建议。';
-  };
-
-  const reviewedCount = group.members.filter((m) => m.to_remove).length;
+  const canPromote = selectedImage?.name !== group.winner;
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/35" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm" onClick={onClose} />
 
-      <div className={`fixed right-0 top-0 z-50 h-full w-full max-w-[900px] transform bg-white shadow-2xl transition-transform duration-300 dark:bg-gray-900 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex h-full flex-col">
-          <div className="border-b border-gray-200 px-6 py-5 dark:border-gray-800">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-600 dark:text-sky-400">Review</p>
-                <h2 className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">逐张确认这一组</h2>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  当前第 {selectedIndex + 1} / {group.members.length} 张，已建议移除 {reviewedCount} 张。
-                </p>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="flex h-[92vh] w-full max-w-[1400px] flex-col overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
+          <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+            <button onClick={() => onPromoteOptimal?.(selectedImage?.name)} disabled={!canPromote} className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
+              设为保留项
+            </button>
+            <button onClick={() => onAction('keep')} className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-gray-50 dark:border-gray-700 dark:text-white dark:hover:bg-gray-800">
+              保留
+            </button>
+            <button onClick={() => onAction('remove')} disabled={!canPromote} className="rounded-2xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/20">
+              移除
+            </button>
+            <button onClick={onSkip} className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
+              下一张
+            </button>
+            <div className="mx-2 h-6 w-px bg-gray-200 dark:bg-gray-800" />
+            <button onClick={() => setZoom((prev) => Math.max(0.5, prev - 0.25))} className="rounded-full border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">-</button>
+            <span className="text-sm text-gray-500 dark:text-gray-400">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom((prev) => Math.min(4, prev + 0.25))} className="rounded-full border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">+</button>
+            <button onClick={() => setZoom(1)} className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
+              还原
+            </button>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                {selectedIndex + 1} / {group.members.length} · {selectedImage.name}
               </div>
               <button onClick={onClose} className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 dark:hover:bg-gray-800">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -79,94 +89,73 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-6">
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-[28px] border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/40">
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">当前查看</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(selectedImage.size)}</span>
-                  </div>
-                  <div className="relative aspect-square overflow-hidden rounded-[22px] bg-gray-200 dark:bg-gray-800">
-                    <img src={toPreviewUrl(selectedImage.path || selectedImage.name)} alt={selectedImage.name} className="absolute inset-0 h-full w-full object-contain" onError={(e) => { e.target.style.opacity = '0'; }} />
-                  </div>
-                  <p className="mt-3 truncate text-sm font-medium text-gray-900 dark:text-white">{selectedImage.name}</p>
-                </div>
-
-                <div className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-white">当前保留项</span>
-                    <span className="text-xs text-emerald-700 dark:text-emerald-300">{formatFileSize(winnerImage.size)}</span>
-                  </div>
-                  <div className="relative aspect-square overflow-hidden rounded-[22px] bg-emerald-100 dark:bg-emerald-900/20">
-                    <img src={toPreviewUrl(winnerImage.path || winnerImage.name)} alt={winnerImage.name} className="absolute inset-0 h-full w-full object-contain" onError={(e) => { e.target.style.opacity = '0'; }} />
-                  </div>
-                  <p className="mt-3 truncate text-sm font-medium text-emerald-700 dark:text-emerald-300">{winnerImage.name}</p>
-                </div>
+          <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="flex min-h-0 flex-col border-b border-gray-200 dark:border-gray-800 xl:border-b-0 xl:border-r">
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[#eef2f8] p-4 dark:bg-black">
+                <img
+                  src={toPreviewUrl(selectedImage.path || selectedImage.name)}
+                  alt={selectedImage.name}
+                  className="max-h-full max-w-full origin-center rounded-lg object-contain transition-transform duration-150"
+                  style={{ transform: `scale(${zoom})` }}
+                  onDoubleClick={() => setZoom((prev) => prev === 1 ? 2 : 1)}
+                  onError={(e) => { e.target.style.opacity = '0'; }}
+                />
               </div>
 
-              <div className="rounded-[28px] border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-950/40">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">建议</p>
-                <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-400">{getHintText()}</p>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-gray-50 p-3 dark:bg-gray-900">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">相似度</p>
-                    <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{selectedImage.similarity !== undefined ? `${(selectedImage.similarity * 100).toFixed(1)}%` : '—'}</p>
-                  </div>
-                  <div className="rounded-2xl bg-gray-50 p-3 dark:bg-gray-900">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">人物判别</p>
-                    <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
-                      {selectedImage.person_identity_state === 'same' ? '同人' :
-                       selectedImage.person_identity_state === 'different' ? '异人' :
-                       selectedImage.person_identity_state === 'uncertain' ? '待定' : '未判定'}
-                    </p>
-                  </div>
+              <div className="border-t border-gray-200 px-4 py-3 dark:border-gray-800">
+                <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                  <span>当前：{selectedImage.name}</span>
+                  <span>{formatFileSize(selectedImage.size)}</span>
+                  <span>{selectedImage.similarity !== undefined ? `${(selectedImage.similarity * 100).toFixed(1)}%` : '—'}</span>
+                  <span>{selectedImage.person_identity_state === 'same' ? '同人' : selectedImage.person_identity_state === 'different' ? '异人' : selectedImage.person_identity_state === 'uncertain' ? '待定' : '未判定'}</span>
                 </div>
-
-                <div className="mt-5 grid gap-3">
-                  <button onClick={() => onPromoteOptimal?.(selectedImage?.name)} disabled={selectedImage?.name === group.winner} className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
-                    设为保留项
-                  </button>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => onAction('keep')} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-900 transition hover:bg-gray-50 dark:border-gray-700 dark:text-white dark:hover:bg-gray-800">
-                      保留这张
-                    </button>
-                    <button onClick={() => onAction('remove')} disabled={selectedImage?.name === group.winner} className="rounded-2xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/20">
-                      保持移除
-                    </button>
-                  </div>
-                  <button onClick={onSkip} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-500 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
-                    跳过，先看下一张
-                  </button>
-                </div>
-
-                <div className="mt-6 rounded-2xl bg-gray-50 px-4 py-3 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
-                  快捷键：`← / →` 切换，`K` 保留，`R` 移除，`S` 跳过。
+                <div className="grid grid-cols-5 gap-2 md:grid-cols-8 xl:grid-cols-10">
+                  {group.members.map((member, index) => {
+                    const isActive = index === selectedIndex;
+                    const isWinner = member.name === group.winner;
+                    return (
+                      <button
+                        key={member.name}
+                        type="button"
+                        onClick={() => onNavigate(index)}
+                        className={`relative overflow-hidden rounded-[16px] border transition ${isActive ? 'border-sky-500 shadow-[0_0_0_3px_rgba(14,165,233,0.16)]' : isWinner ? 'border-emerald-500' : 'border-gray-200 dark:border-gray-800'}`}
+                      >
+                        <div className="relative aspect-square bg-gray-100 dark:bg-gray-800">
+                          <img src={toPreviewUrl(member.path || member.name)} alt={member.name} className="absolute inset-0 h-full w-full object-cover" onError={(e) => { e.target.style.opacity = '0'; }} />
+                          {isWinner && <span className="absolute left-1.5 top-1.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">保留</span>}
+                          {member.to_remove && <span className="absolute right-1.5 top-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">移除</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-4 gap-3 md:grid-cols-6">
-              {group.members.map((member, index) => {
-                const isWinner = member.name === group.winner;
-                const isActive = index === selectedIndex;
-                return (
-                  <button
-                    key={member.name}
-                    type="button"
-                    onClick={() => onNavigate(index)}
-                    className={`overflow-hidden rounded-[20px] border transition ${isActive ? 'border-sky-500 shadow-[0_0_0_3px_rgba(14,165,233,0.16)]' : isWinner ? 'border-emerald-400' : 'border-gray-200 dark:border-gray-800'}`}
-                  >
-                    <div className="relative aspect-square bg-gray-100 dark:bg-gray-800">
-                      <img src={toPreviewUrl(member.path || member.name)} alt={member.name} className="absolute inset-0 h-full w-full object-cover" onError={(e) => { e.target.style.opacity = '0'; }} />
-                      {isWinner && <span className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-1 text-[10px] font-semibold text-white">保留</span>}
-                      {member.to_remove && <span className="absolute right-2 top-2 rounded-full bg-red-500 px-2 py-1 text-[10px] font-semibold text-white">移除</span>}
+            <aside className="flex min-h-0 flex-col bg-white dark:bg-gray-950">
+              <div className="border-b border-gray-200 px-4 py-4 dark:border-gray-800">
+                <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                  <div className="text-xs text-emerald-700 dark:text-emerald-300">当前保留项</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-emerald-700 dark:text-emerald-300">{winnerImage.name}</div>
+                  <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{formatFileSize(winnerImage.size)}</div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">建议</div>
+                    <div className="mt-1 leading-6 text-gray-800 dark:text-gray-200">
+                      {canPromote ? '如果这张更清晰或更完整，直接设为保留项；否则保持当前建议。' : '这张已经是当前保留项，如无问题可继续浏览下一张。'}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">快捷键</div>
+                    <div className="mt-1 leading-6 text-gray-800 dark:text-gray-200">← → 切换，K 保留，R 移除，S 下一张，双击图片可快速放大。</div>
+                  </div>
+                </div>
+              </div>
+            </aside>
           </div>
         </div>
       </div>

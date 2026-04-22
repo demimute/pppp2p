@@ -25,7 +25,9 @@ const BACKEND_WARNING_PATTERNS = [
   'Warning: You are sending unauthenticated requests to the HF Hub',
   'WARNING:huggingface_hub.utils._http:',
 ];
-const RUNTIME_ICON = path.join(__dirname, '../resources/icon.png');
+app.setName('PPPP2P');
+
+const RUNTIME_ICON = path.join(__dirname, '../resources/icon-square.png');
 
 function appendRuntimeLog(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;

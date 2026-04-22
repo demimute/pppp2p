@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { toPreviewUrl } from '../utils/fileUrl.js';
 
-function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, onNavigate, onPromoteOptimal }) {
+function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, onNavigate, onPromoteOptimal, onToggleRemove }) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -152,18 +152,29 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
                 <div className="grid grid-cols-5 gap-2 md:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12">
                   {group.members.map((member, index) => {
                     const isActive = index === selectedIndex;
-                    const isDefault = member.name === group.winner;
+                    const isMarkedForRemoval = member.to_remove;
                     return (
                       <button
                         key={member.name}
                         type="button"
                         onClick={() => onNavigate(index)}
-                        className={`relative overflow-hidden rounded-[16px] border transition ${isActive ? 'border-sky-500 shadow-[0_0_0_3px_rgba(14,165,233,0.16)]' : isDefault ? 'border-emerald-500' : 'border-gray-200 dark:border-gray-800'}`}
+                        className={`relative overflow-hidden rounded-[16px] border bg-gray-50 text-left transition dark:bg-gray-900 ${isActive ? 'border-sky-500 shadow-[0_0_0_3px_rgba(14,165,233,0.16)]' : 'border-gray-200 dark:border-gray-800'}`}
                       >
                         <div className="relative aspect-square bg-gray-100 dark:bg-gray-800">
                           <img src={toPreviewUrl(member.path || member.name)} alt={member.name} className="absolute inset-0 h-full w-full object-cover" onError={(e) => { e.target.style.opacity = '0'; }} />
-                          {isDefault && <span className="absolute left-1.5 top-1.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">默认</span>}
-                          {member.to_remove && <span className="absolute right-1.5 top-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">移除</span>}
+                          <span className={`absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white ${isMarkedForRemoval ? 'bg-red-500' : 'bg-emerald-500'}`}>
+                            {isMarkedForRemoval ? '移除' : '保留'}
+                          </span>
+                          <button
+                            type="button"
+                            className="absolute right-1.5 top-1.5 rounded-full bg-gray-900/70 px-1.5 py-0.5 text-[10px] font-semibold text-white transition hover:bg-gray-900 dark:bg-white/20 dark:hover:bg-white/30"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleRemove?.(group.id, member.name);
+                            }}
+                          >
+                            切换
+                          </button>
                         </div>
                       </button>
                     );

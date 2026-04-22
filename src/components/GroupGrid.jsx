@@ -1,7 +1,7 @@
 import React from 'react';
 import GroupCard from './GroupCard.jsx';
 
-function GroupGrid({ groups, onGroupClick, onToggleRemove, onApplyGroupAction, onRequestBulkRemoveConfirm }) {
+function GroupGrid({ groups, onGroupClick, onToggleRemove, onApplyGroupAction }) {
   const visibleGroups = (groups || []).filter((group) => {
     const visibleMembers = (group.members || []).filter((member) => {
       if (!member?.name) return false;
@@ -29,7 +29,6 @@ function GroupGrid({ groups, onGroupClick, onToggleRemove, onApplyGroupAction, o
           onClick={(memberIndex) => onGroupClick(group, memberIndex)}
           onToggleRemove={onToggleRemove}
           onApplyGroupAction={onApplyGroupAction}
-          onRequestBulkRemoveConfirm={onRequestBulkRemoveConfirm}
         />
       ))}
     </div>

@@ -237,7 +237,6 @@ function App() {
         enhanced_persona: true,
         identity_penalty_strength: tuning.identityPenaltyStrength,
         identity_diff_threshold: tuning.identityDiffThreshold,
-        loose_threshold: tuning.looseThreshold,
       });
 
       if (result) {
@@ -418,14 +417,6 @@ function App() {
     });
   };
 
-  const handleRequestBulkRemoveConfirm = (group) => {
-    const targetGroup = {
-      ...group,
-      members: group.members.map((m) => ({ ...m, to_remove: true })),
-    };
-    openRemoveConfirm([targetGroup], `确认整组移除 · 第 ${group.id} 组`);
-  };
-
   const latestEntry = history[0];
 
   return (
@@ -492,7 +483,6 @@ function App() {
                 <SliderControl label="Hash 阈值" value={tuning.phashThreshold} min={4} max={16} step={1} onChange={(value) => handleTuningChange('phashThreshold', clamp(value, 4, 16))} />
                 <SliderControl label="人物惩罚" value={tuning.identityPenaltyStrength} min={0} max={1.2} step={0.05} onChange={(value) => handleTuningChange('identityPenaltyStrength', clamp(value, 0, 1.2))} format={(value) => value.toFixed(2)} />
                 <SliderControl label="人物差异阈值" value={tuning.identityDiffThreshold} min={0.5} max={0.95} step={0.01} onChange={(value) => handleTuningChange('identityDiffThreshold', clamp(value, 0.5, 0.95))} format={(value) => value.toFixed(2)} />
-                <SliderControl label="边缘并组" value={tuning.looseThreshold} min={0.7} max={0.95} step={0.01} onChange={(value) => handleTuningChange('looseThreshold', clamp(value, 0.7, 0.95))} format={(value) => value.toFixed(2)} />
               </div>
             )}
 
@@ -529,7 +519,6 @@ function App() {
             onGroupClick={handleGroupClick}
             onToggleRemove={handleToggleRemoveFromGrid}
             onApplyGroupAction={handleApplyGroupAction}
-            onRequestBulkRemoveConfirm={handleRequestBulkRemoveConfirm}
           />
         </main>
       </div>
@@ -543,6 +532,7 @@ function App() {
         onSkip={handleCompareSkip}
         onNavigate={handleCompareNavigate}
         onPromoteOptimal={handlePromoteOptimal}
+        onToggleRemove={handleToggleRemoveFromGrid}
       />
 
       <ConfirmDialog

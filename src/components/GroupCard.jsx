@@ -7,7 +7,7 @@ const SCENE_LABELS = {
   chat: '聊天图片',
 };
 
-function GroupCard({ group, groupIndex, onClick, onToggleRemove, onApplyGroupAction, onRequestBulkRemoveConfirm }) {
+function GroupCard({ group, groupIndex, onClick, onToggleRemove, onApplyGroupAction }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [brokenImages, setBrokenImages] = useState({});
 
@@ -56,7 +56,7 @@ function GroupCard({ group, groupIndex, onClick, onToggleRemove, onApplyGroupAct
           </button>
           <button
             type="button"
-            onClick={() => onRequestBulkRemoveConfirm?.(group)}
+            onClick={() => onApplyGroupAction?.(group.id, 'remove_all')}
             className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/20"
           >
             全部移除

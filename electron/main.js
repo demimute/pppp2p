@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 let mainWindow;
 let pythonProcess = null;
 let backendManaged = false;
+let isQuitting = false;
 let backendStatus = {
   running: false,
   source: 'unknown',
@@ -14,6 +15,14 @@ let backendStatus = {
 };
 const BACKEND_PORT = 18765;
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
+const useViteDevServer = process.env.DEDUP_USE_VITE_DEV_SERVER === '1';
+const BACKEND_WARNING_PATTERNS = [
+  'UserWarning:',
+  'QuickGELU mismatch',
+  'warnings.warn(',
+  'Warning: You are sending unauthenticated requests to the HF Hub',
+  'WARNING:huggingface_hub.utils._http:',
+];
 
 function updateBackendStatus(patch = {}) {
   backendStatus = { ...backendStatus, ...patch };
@@ -22,11 +31,21 @@ function updateBackendStatus(patch = {}) {
   }
 }
 
+async function waitForPort(port, attempts = 20, delayMs = 500) {
+  for (let i = 0; i < attempts; i += 1) {
+    if ((await isPortOpen(port, '127.0.0.1')) || (await isPortOpen(port, '::1'))) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 async function loadRenderer(window) {
-  const devServerReady = isDev && await isPortOpen(5173);
+  const devServerReady = isDev && useViteDevServer && await waitForPort(5173);
 
   if (devServerReady) {
-    await window.loadURL('http://127.0.0.1:5173');
+    await window.loadURL('http://localhost:5173');
     return;
   }
 
@@ -37,6 +56,14 @@ async function loadRenderer(window) {
   }
 
   throw new Error(`Renderer entry not found: ${distEntry}`);
+}
+
+function showFatalError(title, error) {
+  const detail = String(error?.stack || error?.message || error || 'unknown error');
+  console.error(`[${title}]`, detail);
+  if (app.isReady()) {
+    dialog.showErrorBox(title, detail);
+  }
 }
 
 function createWindow() {
@@ -51,7 +78,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
-    show: false,
+    show: isDev,
     backgroundColor: '#f9fafb',
     titleBarStyle: 'defaultInset',
   });
@@ -106,8 +133,39 @@ function createWindow() {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('[Renderer did-fail-load]:', { errorCode, errorDescription, validatedURL });
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Renderer did-finish-load]:', mainWindow.webContents.getURL());
+    if (!mainWindow?.isVisible()) {
+      mainWindow.show();
+    }
+    // Keep DevTools available from the View menu, but do not auto-open in dev.
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Renderer process gone]:', details);
+    if (!isQuitting) {
+      showFatalError('Renderer 进程异常退出', JSON.stringify(details, null, 2));
+    }
+  });
+
+  mainWindow.on('unresponsive', () => {
+    console.error('[Main window unresponsive]');
+  });
+
   loadRenderer(mainWindow).catch((error) => {
     console.error('[Renderer load error]:', error);
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+      <html>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; background: #f8fafc; color: #111827;">
+          <h2>Renderer load failed</h2>
+          <pre style="white-space: pre-wrap; background: white; border: 1px solid #e5e7eb; padding: 12px; border-radius: 8px;">${String(error.stack || error.message || error)}</pre>
+        </body>
+      </html>
+    `)}`);
   });
 
   mainWindow.once('ready-to-show', () => {
@@ -119,7 +177,7 @@ function createWindow() {
   });
 }
 
-function isPortOpen(port) {
+function isPortOpen(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     socket.setTimeout(1000);
@@ -133,7 +191,7 @@ function isPortOpen(port) {
     };
     socket.once('error', onFail);
     socket.once('timeout', onFail);
-    socket.connect(port, '127.0.0.1');
+    socket.connect(port, host);
   });
 }
 
@@ -172,7 +230,20 @@ async function startPythonBackend() {
 
   pythonProcess.stderr.on('data', async (data) => {
     const message = data.toString();
+    const normalizedMessage = message.trim();
     console.error('[Python stderr]:', message);
+
+    if (BACKEND_WARNING_PATTERNS.some((pattern) => normalizedMessage.includes(pattern))) {
+      const backendReady = await isPortOpen(BACKEND_PORT);
+      if (backendReady) {
+        updateBackendStatus({
+          running: true,
+          source: backendManaged ? 'managed' : 'external',
+          message: backendManaged ? '内置后端已启动' : '已接管现有后端服务',
+        });
+      }
+      return;
+    }
 
     if (message.includes('Address already in use')) {
       const existingBackend = await isPortOpen(BACKEND_PORT);
@@ -207,7 +278,7 @@ async function startPythonBackend() {
     updateBackendStatus({
       running: false,
       source: 'error',
-      message: message.trim() || '后端启动失败',
+      message: normalizedMessage || '后端启动失败',
     });
   });
 
@@ -286,6 +357,18 @@ ipcMain.handle('api-call', async (_event, { method, endpoint, body }) => {
   }
 });
 
+app.on('child-process-gone', (_event, details) => {
+  console.error('[Child process gone]:', details);
+});
+
+process.on('uncaughtException', (error) => {
+  showFatalError('主进程未捕获异常', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  showFatalError('主进程未处理 Promise 异常', reason);
+});
+
 app.whenReady().then(async () => {
   protocol.registerFileProtocol('local-file', (request, callback) => {
     const url = request.url.replace('local-file://', '');
@@ -303,6 +386,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  if (isDev && !isQuitting) {
+    return;
+  }
   if (pythonProcess) {
     pythonProcess.kill('SIGTERM');
     pythonProcess = null;
@@ -314,6 +400,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   if (pythonProcess) {
     pythonProcess.kill('SIGTERM');
     pythonProcess = null;

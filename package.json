@@ -4,7 +4,7 @@
   "description": "智能照片去重助手 - 基于 CLIP 视觉嵌入 + 感知哈希",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev": "npm run build && electron .",
     "dev:vite": "vite",
     "dev:electron": "electron .",
     "build": "vite build",

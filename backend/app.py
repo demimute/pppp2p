@@ -1,8 +1,9 @@
-"""DedupStudio Flask Backend."""
+"""PPPP2P Flask Backend."""
 
 import os
 import shutil
 import hashlib
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
@@ -43,31 +44,77 @@ app = Flask(__name__)
 CORS(app)
 
 # In-memory state
-# embeddings cache: {folder: {imagename: embedding}}
 _embeddings_cache: Dict[str, Dict[str, List[float]]] = {}
-# hashes cache: {folder: {imagename: hash}}
 _hashes_cache: Dict[str, Dict[str, str]] = {}
-# persona features cache: {folder: {imagename: persona_vector}}
 _persona_cache: Dict[str, Dict[str, List[float]]] = {}
-# file sizes: {folder: {imagename: size}}
 _file_sizes: Dict[str, Dict[str, int]] = {}
-# operation history: list of HistoryEntry
 _history: List[HistoryEntry] = []
 _history_id_counter = 1
-# undo stack: {folder: List of {src: dest} moves}
 _undo_stack: Dict[str, List[Dict[str, str]]] = {}
-# last operation for a folder: {folder: {images: [...], dest_folder: ...}}
 _last_op: Dict[str, Dict[str, Any]] = {}
 _prewarmed_folders: set[str] = set()
 _prewarm_executor = ThreadPoolExecutor(max_workers=1)
 _prewarm_futures: Dict[str, Any] = {}
 
-# Supported image extensions
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif'}
+PREFERENCES_PATH = Path.home() / '.dedup-studio' / 'preferences.json'
+
+
+def _load_preferences() -> Dict[str, Any]:
+    if not PREFERENCES_PATH.exists():
+        return {'group_winners': {}}
+    try:
+        with open(PREFERENCES_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                data.setdefault('group_winners', {})
+                return data
+    except Exception:
+        pass
+    return {'group_winners': {}}
+
+
+def _save_preferences(preferences: Dict[str, Any]) -> None:
+    PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(PREFERENCES_PATH, 'w', encoding='utf-8') as f:
+        json.dump(preferences, f, ensure_ascii=False, indent=2)
+
+
+def _group_signature(folder: str, member_names: List[str]) -> str:
+    ordered = sorted(member_names)
+    payload = f"{folder}::{'|'.join(ordered)}"
+    return hashlib.md5(payload.encode('utf-8')).hexdigest()
+
+
+def _remember_group_winner(folder: str, member_names: List[str], winner: str) -> None:
+    if not folder or not member_names or not winner:
+        return
+    preferences = _load_preferences()
+    signature = _group_signature(folder, member_names)
+    preferences['group_winners'][signature] = {
+        'folder': folder,
+        'members': sorted(member_names),
+        'winner': winner,
+        'updated_at': datetime.now().isoformat(),
+    }
+    _save_preferences(preferences)
+
+
+def _restore_group_winner(folder: str, member_names: List[str]) -> Optional[str]:
+    if not folder or not member_names:
+        return None
+    preferences = _load_preferences()
+    signature = _group_signature(folder, member_names)
+    record = preferences.get('group_winners', {}).get(signature)
+    if not record:
+        return None
+    winner = record.get('winner')
+    if winner in member_names:
+        return winner
+    return None
 
 
 def _is_image(filename: str) -> bool:
-    """Check if a file is a supported image."""
     ext = Path(filename).suffix.lower()
     return ext in IMAGE_EXTS
 
@@ -122,12 +169,6 @@ def _await_prewarm(folder: str) -> None:
 
 
 def _fast_persona_prefilter(a_persona: List[float], b_persona: List[float]) -> bool:
-    """Cheap coarse reject before expensive pair evaluation.
-
-    Uses a few highly discriminative persona dims to skip pairs that are
-    obviously not the same subject. Returns True when the pair should be
-    rejected early.
-    """
     if not a_persona or not b_persona or len(a_persona) < 13 or len(b_persona) < 13:
         return False
 
@@ -168,7 +209,7 @@ def _evaluate_dual_pair(
     if base_similarity < clip_threshold:
         return None
 
-    dist = hamming_distance(hashes.get(a, ""), hashes.get(b, "")) if (hashes.get(a) and hashes.get(b)) else 999
+    dist = hamming_distance(hashes.get(a, ''), hashes.get(b, '')) if (hashes.get(a) and hashes.get(b)) else 999
     if dist > phash_threshold:
         return None
 
@@ -266,176 +307,128 @@ def _build_dual_edges_parallel(
                     identity_same_threshold,
                     identity_diff_threshold,
                 )
-                if result is not None:
+                if result:
                     chunk_results.append(result)
         return chunk_results
 
-    ranges = [(start, min(start + chunk_size, len(image_names) - 1)) for start in range(0, len(image_names) - 1, chunk_size)]
+    futures = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for chunk_results in executor.map(lambda r: process_chunk(r[0], r[1]), ranges):
-            for a, b, final_similarity, shared_meta in chunk_results:
-                pair_edges[a][b] = final_similarity
-                pair_edges[b][a] = final_similarity
-                member_meta[a][b] = shared_meta
-                member_meta[b][a] = shared_meta
+        for start_index in range(0, len(image_names), chunk_size):
+            end_index = min(len(image_names), start_index + chunk_size)
+            futures.append(executor.submit(process_chunk, start_index, end_index))
+
+        for future in futures:
+            for a, b, similarity, meta in future.result():
+                pair_edges[a][b] = similarity
+                pair_edges[b][a] = similarity
+                member_meta[a][b] = meta
+                member_meta[b][a] = meta
 
     return pair_edges, member_meta
 
 
-@app.route("/api/scan", methods=["POST"])
+@app.route('/api/scan', methods=['POST'])
 def scan():
-    """Scan folder for images."""
     try:
         data = request.get_json()
-        folder = data.get("folder", "").strip()
+        folder = data.get('folder', '').strip()
 
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
 
         folder_path = Path(folder)
         if not folder_path.exists() or not folder_path.is_dir():
-            return jsonify({"error": f"folder does not exist: {folder}"}), 400
+            return jsonify({'error': f'folder does not exist: {folder}'}), 400
 
-        # If the dedup folder has been removed externally, treat this folder as a fresh session.
-        # This prevents stale undo/history state from surviving across test fixture resets.
-        dest_folder = folder_path.parent / f"{folder_path.name}-已去重"
-        if not dest_folder.exists():
-            _undo_stack.pop(folder, None)
-            _last_op.pop(folder, None)
-            global _history
-            _history = [entry for entry in _history if entry.folder != folder]
-
-        # Scan images
-        all_images = []
+        images = []
+        cached = 0
+        sizes = {}
         for entry in sorted(folder_path.iterdir()):
             if entry.is_file() and _is_image(entry.name):
-                all_images.append(entry.name)
+                size = entry.stat().st_size
+                sizes[entry.name] = size
+                clip_cached = folder in _embeddings_cache and entry.name in _embeddings_cache[folder]
+                hash_cached = folder in _hashes_cache and entry.name in _hashes_cache[folder]
+                images.append({'name': entry.name, 'size': size, 'cached': clip_cached or hash_cached})
+                if clip_cached or hash_cached:
+                    cached += 1
 
-        # Get cached status
-        from cache import get_cache
-        cached_count = 0
-        images_info = []
-        sizes = {}
-
-        for img_name in all_images:
-            size = (folder_path / img_name).stat().st_size
-            sizes[img_name] = size
-            cached = get_cache(folder, img_name) is not None
-            if cached:
-                cached_count += 1
-            images_info.append({
-                "name": img_name,
-                "size": size,
-                "cached": cached,
-            })
-
-        # Store sizes globally
         _file_sizes[folder] = sizes
+        if images:
+            _start_async_prewarm(folder, images[0]['name'])
 
-        if all_images:
-            _consume_prewarm_if_ready(folder)
-            _start_async_prewarm(folder, all_images[0])
-
-        response = {
-            "folder": folder,
-            "total": len(all_images),
-            "cached": cached_count,
-            "images": images_info,
-        }
-        return jsonify(response)
-
+        return jsonify({'folder': folder, 'total': len(images), 'cached': cached, 'images': images})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/embed", methods=["POST"])
+@app.route('/api/embed', methods=['POST'])
 def embed():
-    """Compute CLIP embeddings for images."""
     try:
         data = request.get_json()
-        folder = data.get("folder", "").strip()
-        images = data.get("images", [])
+        folder = data.get('folder', '').strip()
+        images = data.get('images', [])
 
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
         if not images:
-            return jsonify({"error": "images list is required"}), 400
+            return jsonify({'error': 'images list is required'}), 400
 
-        _await_prewarm(folder)
-
-        cached_embeddings = _embeddings_cache.get(folder, {})
-        missing_images = [name for name in images if name not in cached_embeddings]
-
-        # Compute embeddings
-        embeddings = dict(cached_embeddings)
-        if missing_images:
-            embeddings.update(compute_embeddings(missing_images, folder))
-
-        # Cache in memory
+        embeddings = compute_embeddings(images, folder)
         if folder not in _embeddings_cache:
             _embeddings_cache[folder] = {}
         _embeddings_cache[folder].update(embeddings)
-
-        return jsonify({"embeddings": embeddings})
-
+        return jsonify({'embeddings': embeddings})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/hash", methods=["POST"])
+@app.route('/api/hash', methods=['POST'])
 def hash_images():
-    """Compute perceptual hashes for images."""
     try:
         data = request.get_json()
-        folder = data.get("folder", "").strip()
-        images = data.get("images", [])
+        folder = data.get('folder', '').strip()
+        images = data.get('images', [])
 
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
         if not images:
-            return jsonify({"error": "images list is required"}), 400
+            return jsonify({'error': 'images list is required'}), 400
 
-        # Compute hashes
         hashes = compute_hashes(images, folder)
-
-        # Cache in memory
         if folder not in _hashes_cache:
             _hashes_cache[folder] = {}
         _hashes_cache[folder].update(hashes)
 
-        return jsonify({"hashes": hashes})
-
+        return jsonify({'hashes': hashes})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/groups", methods=["POST"])
+@app.route('/api/groups', methods=['POST'])
 def groups():
-    """Compute similarity groups."""
     try:
         data = request.get_json()
-        folder = data.get("folder", "").strip()
-        strategy = data.get("strategy", "clip")
-        threshold = float(data.get("threshold", 0.93))
-        loose_threshold = float(data.get("loose_threshold", 0.85))
-        clip_threshold = float(data.get("clip_threshold", threshold or 0.92))
-        phash_threshold = int(data.get("phash_threshold", 10))
-        # Person disambiguation stays enabled by default for dual.
-        enhanced_persona = data.get("enhanced_persona", True) if strategy == "dual" else False
-        identity_penalty_strength = float(data.get("identity_penalty_strength", 0.5))
-        identity_same_threshold = float(data.get("identity_same_threshold", IDENTITY_THRESHOLD_SAME))
-        identity_diff_threshold = float(data.get("identity_diff_threshold", IDENTITY_THRESHOLD_DIFF))
-        identity_version = str(data.get("identity_version", "v1")).strip() or "v1"
+        folder = data.get('folder', '').strip()
+        strategy = data.get('strategy', 'clip')
+        threshold = float(data.get('threshold', 0.93))
+        loose_threshold = float(data.get('loose_threshold', 0.85))
+        clip_threshold = float(data.get('clip_threshold', threshold or 0.92))
+        phash_threshold = int(data.get('phash_threshold', 10))
+        enhanced_persona = data.get('enhanced_persona', True) if strategy == 'dual' else False
+        identity_penalty_strength = float(data.get('identity_penalty_strength', 0.5))
+        identity_same_threshold = float(data.get('identity_same_threshold', IDENTITY_THRESHOLD_SAME))
+        identity_diff_threshold = float(data.get('identity_diff_threshold', IDENTITY_THRESHOLD_DIFF))
+        identity_version = str(data.get('identity_version', 'v1')).strip() or 'v1'
 
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
 
-        # Get file sizes for winner determination
         sizes = _file_sizes.get(folder, {})
         if not sizes:
             folder_path = Path(folder)
             if not folder_path.exists() or not folder_path.is_dir():
-                return jsonify({"error": f"folder does not exist: {folder}"}), 400
+                return jsonify({'error': f'folder does not exist: {folder}'}), 400
             sizes = {
                 entry.name: entry.stat().st_size
                 for entry in sorted(folder_path.iterdir())
@@ -447,7 +440,7 @@ def groups():
         hashes = {}
         image_scenes = classify_image_scenes(list(sizes.keys()), folder)
 
-        if strategy == "clip":
+        if strategy == 'clip':
             _await_prewarm(folder)
             images = list(sizes.keys())
             embeddings = dict(_embeddings_cache.get(folder, {}))
@@ -456,49 +449,36 @@ def groups():
                 embeddings.update(compute_embeddings(missing_images, folder))
                 _embeddings_cache[folder] = embeddings
             group_list = find_groups_clip(embeddings, threshold, loose_threshold, sizes)
-
-        elif strategy in {"hash", "phash"}:
+        elif strategy in {'hash', 'phash'}:
             hashes = _hashes_cache.get(folder, {})
             if not hashes:
                 images = list(sizes.keys())
                 hashes = compute_hashes(images, folder)
                 _hashes_cache[folder] = hashes
             group_list = find_groups_hash(hashes, max_hamming=int(threshold))
-
-        elif strategy in {"size", "filesize"}:
-            # Group by exact file size
+        elif strategy in {'size', 'filesize'}:
             from collections import defaultdict
             size_groups = defaultdict(list)
-            folder_path = Path(folder)
             for img_name in sizes:
-                size = sizes[img_name]
-                size_groups[size].append(img_name)
+                size_groups[sizes[img_name]].append(img_name)
 
             group_list = []
             group_id = 1
             for size, members in size_groups.items():
                 if len(members) < 2:
                     continue
-                winner = members[0]
+                optimal_name = members[0]
+                restored_winner = _restore_group_winner(folder, members)
+                if restored_winner:
+                    optimal_name = restored_winner
                 from models import GroupMember
                 group_members = []
                 for m in members:
-                    sim = 1.0 if m == winner else 0.99  # Approximate
-                    group_members.append(GroupMember(
-                        name=m,
-                        similarity=sim,
-                        to_remove=(m != winner),
-                    ))
-                group_list.append(Group(
-                    id=group_id,
-                    winner=winner,
-                    winner_size=size,
-                    members=group_members,
-                ))
+                    sim = 1.0 if m == optimal_name else 0.99
+                    group_members.append(GroupMember(name=m, similarity=sim, to_remove=(m != optimal_name)))
+                group_list.append(Group(id=group_id, winner=optimal_name, winner_size=size, members=group_members))
                 group_id += 1
-
-        elif strategy in {"both", "dual"}:
-            # Dual now groups by accepted pair edges first, then selects a default optimal item.
+        elif strategy in {'both', 'dual'}:
             _await_prewarm(folder)
             embeddings = dict(_embeddings_cache.get(folder, {}))
             hashes = _hashes_cache.get(folder, {})
@@ -559,6 +539,10 @@ def groups():
                     return (degree, round(score_sum, 6), sizes.get(name, 0), name)
 
                 optimal_name = max(component, key=optimal_key)
+                restored_winner = _restore_group_winner(folder, component)
+                if restored_winner:
+                    optimal_name = restored_winner
+
                 members = []
                 for name in component:
                     pair_info = member_meta[optimal_name].get(name, {}) if name != optimal_name else {}
@@ -597,12 +581,15 @@ def groups():
                     group_scene_signals=group_scene.get('group_scene_signals', []),
                 ))
                 group_id += 1
-
         else:
-            return jsonify({"error": f"unknown strategy: {strategy}"}), 400
+            return jsonify({'error': f'unknown strategy: {strategy}'}), 400
 
-        # Fill in winner_size from actual file sizes and attach display-only scene tags.
         for g in group_list:
+            restored_winner = _restore_group_winner(folder, [m.name for m in g.members])
+            if restored_winner and restored_winner != g.winner:
+                g.winner = restored_winner
+                for m in g.members:
+                    m.to_remove = m.name != restored_winner
             g.winner_size = sizes.get(g.winner, 0)
             for m in g.members:
                 scene_meta = image_scenes.get(m.name, {})
@@ -614,128 +601,134 @@ def groups():
             g.group_scene_confidence = group_scene.get('group_scene_confidence', 0.0)
             g.group_scene_signals = group_scene.get('group_scene_signals', [])
 
-        # Calculate stats
         total_groups = len(group_list)
         to_remove = sum(1 for g in group_list for m in g.members if m.to_remove)
         to_keep = max(len(sizes) - to_remove, 0)
 
         intelligence = None
-        if strategy == "clip" and embeddings:
+        if strategy == 'clip' and embeddings:
             distribution = analyze_distribution(embeddings)
             recommendation = find_optimal_threshold(embeddings)
             intelligence = {
-                "distribution": distribution,
-                "recommended_threshold": recommendation["recommended"],
-                "alternatives": recommendation["alternatives"],
-                "reason": recommendation["reason"],
-                "suggested_strategy": suggest_strategy(len(sizes), total_groups),
+                'distribution': distribution,
+                'recommended_threshold': recommendation['recommended'],
+                'alternatives': recommendation['alternatives'],
+                'reason': recommendation['reason'],
+                'suggested_strategy': suggest_strategy(len(sizes), total_groups),
             }
 
         return jsonify({
-            "groups": [
+            'groups': [
                 {
-                    "id": g.id,
-                    "winner": g.winner,
-                    "winner_size": g.winner_size,
-                    "persona_enabled": g.persona_enabled,
-                    "persona_boost": g.persona_boost,
-                    "identity_version": getattr(g, 'identity_version', 'v1'),
-                    "group_final_score": getattr(g, 'group_final_score', 0.0),
-                    "group_decision_reason": getattr(g, 'group_decision_reason', ''),
-                    "group_scene_type": getattr(g, 'group_scene_type', 'unknown'),
-                    "group_scene_confidence": getattr(g, 'group_scene_confidence', 0.0),
-                    "group_scene_signals": getattr(g, 'group_scene_signals', []),
-                    "members": [
+                    'id': g.id,
+                    'winner': g.winner,
+                    'winner_size': g.winner_size,
+                    'persona_enabled': g.persona_enabled,
+                    'persona_boost': g.persona_boost,
+                    'identity_version': getattr(g, 'identity_version', 'v1'),
+                    'group_final_score': getattr(g, 'group_final_score', 0.0),
+                    'group_decision_reason': getattr(g, 'group_decision_reason', ''),
+                    'group_scene_type': getattr(g, 'group_scene_type', 'unknown'),
+                    'group_scene_confidence': getattr(g, 'group_scene_confidence', 0.0),
+                    'group_scene_signals': getattr(g, 'group_scene_signals', []),
+                    'members': [
                         {
-                            "name": m.name,
-                            "similarity": m.similarity,
-                            "to_remove": m.to_remove,
-                            "size": sizes.get(m.name, 0),
-                            "path": str(Path(folder) / m.name),
-                            "hamming_distance": m.hamming_distance,
-                            "persona_similarity": m.persona_similarity,
-                            "persona_vector": m.persona_vector if m.persona_vector else [],
-                            "person_identity_state": getattr(m, 'person_identity_state', 'unavailable'),
-                            "person_identity_score": getattr(m, 'person_identity_score', 0.0),
-                            "pose_state": getattr(m, 'pose_state', 'unavailable'),
-                            "pose_similarity": getattr(m, 'pose_similarity', 0.0),
-                            "person_adjustment": getattr(m, 'person_adjustment', 0.0),
-                            "decision_reason": getattr(m, 'decision_reason', ''),
-                            "hard_rejected_by_identity": getattr(m, 'hard_rejected_by_identity', False),
-                            "scene_type": getattr(m, 'scene_type', 'unknown'),
-                            "scene_confidence": getattr(m, 'scene_confidence', 0.0),
-                            "scene_signals": getattr(m, 'scene_signals', []),
+                            'name': m.name,
+                            'similarity': m.similarity,
+                            'to_remove': m.to_remove,
+                            'size': sizes.get(m.name, 0),
+                            'path': str(Path(folder) / m.name),
+                            'hamming_distance': m.hamming_distance,
+                            'persona_similarity': m.persona_similarity,
+                            'persona_vector': m.persona_vector if m.persona_vector else [],
+                            'person_identity_state': getattr(m, 'person_identity_state', 'unavailable'),
+                            'person_identity_score': getattr(m, 'person_identity_score', 0.0),
+                            'pose_state': getattr(m, 'pose_state', 'unavailable'),
+                            'pose_similarity': getattr(m, 'pose_similarity', 0.0),
+                            'person_adjustment': getattr(m, 'person_adjustment', 0.0),
+                            'decision_reason': getattr(m, 'decision_reason', ''),
+                            'hard_rejected_by_identity': getattr(m, 'hard_rejected_by_identity', False),
+                            'scene_type': getattr(m, 'scene_type', 'unknown'),
+                            'scene_confidence': getattr(m, 'scene_confidence', 0.0),
+                            'scene_signals': getattr(m, 'scene_signals', []),
                         }
                         for m in g.members
                     ],
                 }
                 for g in group_list
             ],
-            "stats": {
-                "total_groups": total_groups,
-                "to_remove": to_remove,
-                "to_keep": to_keep,
+            'stats': {
+                'total_groups': total_groups,
+                'to_remove': to_remove,
+                'to_keep': to_keep,
             },
-            "intelligence": intelligence,
+            'intelligence': intelligence,
         })
-
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/move", methods=["POST"])
+@app.route('/api/preferences/winner', methods=['POST'])
+def remember_winner():
+    try:
+        data = request.get_json() or {}
+        folder = data.get('folder', '').strip()
+        members = data.get('members', [])
+        winner = data.get('winner', '').strip()
+        if not folder or not members or not winner:
+            return jsonify({'error': 'folder, members and winner are required'}), 400
+        _remember_group_winner(folder, members, winner)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/move', methods=['POST'])
 def move():
-    """Move files to deduplication folder."""
     try:
         data = request.get_json()
-        folder = data.get("folder", "").strip()
-        moves = data.get("moves", [])
-        strategy = data.get("strategy", "unknown")
-        threshold = float(data.get("threshold", 0.0) or 0.0)
+        folder = data.get('folder', '').strip()
+        moves = data.get('moves', [])
+        strategy = data.get('strategy', 'unknown')
+        threshold = float(data.get('threshold', 0.0) or 0.0)
 
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
         if not moves:
-            return jsonify({"success": True, "moved": 0}), 200
+            return jsonify({'success': True, 'moved': 0}), 200
 
         folder_path = Path(folder)
-        dest_folder = folder_path.parent / f"{folder_path.name}-已去重"
+        dest_folder = folder_path.parent / f'{folder_path.name}-已去重'
         dest_folder.mkdir(exist_ok=True)
 
         moved_files = []
         move_records = []
 
         for move_item in moves:
-            name = move_item.get("name", "")
-            action = move_item.get("action", "")
-            if action != "remove":
+            name = move_item.get('name', '')
+            action = move_item.get('action', '')
+            if action != 'remove':
                 continue
             src = folder_path / name
             if not src.exists():
                 continue
             dest = dest_folder / name
-            # Handle name conflict
             if dest.exists():
                 base = dest.stem
                 ext = dest.suffix
                 counter = 1
                 while dest.exists():
-                    dest = dest_folder / f"{base}_{counter}{ext}"
+                    dest = dest_folder / f'{base}_{counter}{ext}'
                     counter += 1
             shutil.move(str(src), str(dest))
             moved_files.append(name)
-            move_records.append({"src": str(src), "dest": str(dest)})
+            move_records.append({'src': str(src), 'dest': str(dest)})
 
-        # Record for undo
         if folder not in _undo_stack:
             _undo_stack[folder] = []
         _undo_stack[folder].append(move_records)
-        _last_op[folder] = {
-            "images": moved_files,
-            "dest_folder": str(dest_folder),
-        }
+        _last_op[folder] = {'images': moved_files, 'dest_folder': str(dest_folder)}
 
-        # Add to history
         global _history_id_counter, _history
         _history.append(HistoryEntry(
             id=_history_id_counter,
@@ -748,36 +741,33 @@ def move():
         ))
         _history_id_counter += 1
 
-        return jsonify({"success": True, "moved": len(moved_files)})
-
+        return jsonify({'success': True, 'moved': len(moved_files)})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/undo", methods=["POST"])
+@app.route('/api/undo', methods=['POST'])
 def undo():
-    """Undo the last move operation."""
     try:
         data = request.get_json()
-        folder = data.get("folder", "").strip()
+        folder = data.get('folder', '').strip()
 
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
 
         if folder not in _undo_stack or not _undo_stack[folder]:
-            return jsonify({"success": False, "error": "nothing to undo"}), 400
+            return jsonify({'success': False, 'error': 'nothing to undo'}), 400
 
         last_moves = _undo_stack[folder].pop()
         restored = 0
 
         for move_record in last_moves:
-            src = move_record["src"]
-            dest = move_record["dest"]
+            src = move_record['src']
+            dest = move_record['dest']
             if Path(dest).exists():
                 shutil.move(dest, src)
                 restored += 1
 
-        # Update history: mark the most recent entry for this folder as undone
         for entry in reversed(_history):
             if entry.folder == folder and not entry.undone:
                 entry.undone = True
@@ -786,21 +776,19 @@ def undo():
         if folder in _last_op:
             del _last_op[folder]
 
-        return jsonify({"success": True, "restored": restored})
-
+        return jsonify({'success': True, 'restored': restored})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/analyze", methods=["POST"])
+@app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Analyze embedding distribution and recommend threshold."""
     try:
         data = request.get_json() or {}
-        folder = data.get("folder", "").strip()
-        strategy = data.get("strategy", "clip")
+        folder = data.get('folder', '').strip()
+        strategy = data.get('strategy', 'clip')
         if not folder:
-            return jsonify({"error": "folder is required"}), 400
+            return jsonify({'error': 'folder is required'}), 400
 
         sizes = _file_sizes.get(folder, {})
         if not sizes:
@@ -815,63 +803,56 @@ def analyze():
 
         images = list(sizes.keys())
         embeddings = _embeddings_cache.get(folder, {})
-        if strategy in {"clip", "dual", "phash"} and not embeddings:
+        if strategy in {'clip', 'dual', 'phash'} and not embeddings:
             embeddings = compute_embeddings(images, folder)
             _embeddings_cache[folder] = embeddings
 
         distribution = analyze_distribution(embeddings)
         recommendation = find_optimal_threshold(embeddings)
         return jsonify({
-            "distribution": distribution,
-            "recommended_threshold": recommendation["recommended"],
-            "alternatives": recommendation["alternatives"],
-            "reason": recommendation["reason"],
-            "n_images": len(images),
+            'distribution': distribution,
+            'recommended_threshold': recommendation['recommended'],
+            'alternatives': recommendation['alternatives'],
+            'reason': recommendation['reason'],
+            'n_images': len(images),
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/history", methods=["GET"])
+@app.route('/api/history', methods=['GET'])
 def history():
-    """Get operation history."""
     try:
         return jsonify({
-            "history": [
+            'history': [
                 {
-                    "id": h.id,
-                    "time": h.time,
-                    "strategy": h.strategy,
-                    "threshold": h.threshold,
-                    "removed": h.removed,
-                    "folder": h.folder,
-                    "undone": h.undone,
+                    'id': h.id,
+                    'time': h.time,
+                    'strategy': h.strategy,
+                    'threshold': h.threshold,
+                    'removed': h.removed,
+                    'folder': h.folder,
+                    'undone': h.undone,
                 }
                 for h in reversed(_history)
             ]
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/clear_cache", methods=["POST"])
+@app.route('/api/clear_cache', methods=['POST'])
 def api_clear_cache():
-    """Clear cache for a folder or all."""
     try:
         data = request.get_json() or {}
-        folder = data.get("folder")
+        folder = data.get('folder')
         count = clear_cache(folder)
-        return jsonify({"success": True, "cleared": count})
+        return jsonify({'success': True, 'cleared': count})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-if __name__ == "__main__":
-    port = int(os.environ.get("DEDUP_BACKEND_PORT", "5000"))
-    debug_enabled = os.environ.get("DEDUP_BACKEND_DEBUG", "0") == "1"
-    app.run(
-        host="127.0.0.1",
-        port=port,
-        debug=debug_enabled,
-        use_reloader=debug_enabled,
-    )
+if __name__ == '__main__':
+    port = int(os.environ.get('DEDUP_BACKEND_PORT', '5000'))
+    debug_enabled = os.environ.get('DEDUP_BACKEND_DEBUG', '0') == '1'
+    app.run(host='127.0.0.1', port=port, debug=debug_enabled, use_reloader=debug_enabled)

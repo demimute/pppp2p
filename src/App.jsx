@@ -1,31 +1,66 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import GroupGrid from './components/GroupGrid.jsx';
 import ComparePanel from './components/ComparePanel.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { useApi } from './hooks/useApi.js';
 
-const MODES = {
-  quick: {
-    id: 'quick',
-    label: '快速',
+const MODE_PRESETS = {
+  relaxed: {
+    id: 'relaxed',
+    label: '宽松',
     strategy: 'phash',
-    threshold: 8,
+    threshold: 10,
+    clipThreshold: 0.9,
+    phashThreshold: 11,
+    identityPenaltyStrength: 0.35,
+    identityDiffThreshold: 0.75,
+    looseThreshold: 0.82,
   },
   standard: {
     id: 'standard',
     label: '标准',
     strategy: 'dual',
-    dualThreshold: { clip: 0.92, phash: 10 },
-    personEnhance: { enabled: true, weight: 0.55, diffThreshold: 0.8 },
+    threshold: 0.92,
+    clipThreshold: 0.92,
+    phashThreshold: 10,
+    identityPenaltyStrength: 0.55,
+    identityDiffThreshold: 0.8,
+    looseThreshold: 0.85,
   },
   strict: {
     id: 'strict',
     label: '严格',
     strategy: 'dual',
-    dualThreshold: { clip: 0.94, phash: 8 },
-    personEnhance: { enabled: true, weight: 0.85, diffThreshold: 0.88 },
+    threshold: 0.94,
+    clipThreshold: 0.94,
+    phashThreshold: 8,
+    identityPenaltyStrength: 0.85,
+    identityDiffThreshold: 0.88,
+    looseThreshold: 0.88,
   },
 };
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function SliderControl({ label, value, min, max, step, onChange, format }) {
+  return (
+    <label className="flex min-w-[180px] flex-1 flex-col gap-1 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-950/80">
+      <div className="flex items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <span>{label}</span>
+        <span className="font-medium text-gray-700 dark:text-gray-200">{format ? format(value) : value}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-sky-500 dark:bg-gray-800"
+      />
+    </label>
+  );
+}
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -47,7 +82,8 @@ function App() {
   const [manualPath, setManualPath] = useState('');
   const [imageCount, setImageCount] = useState(0);
   const [selectedMode, setSelectedMode] = useState('standard');
-  const [showModeTuning, setShowModeTuning] = useState(false);
+  const [showModeTuning, setShowModeTuning] = useState(true);
+  const [tuning, setTuning] = useState(MODE_PRESETS.standard);
   const [groups, setGroups] = useState([]);
   const groupsRef = useRef(groups);
   useEffect(() => { groupsRef.current = groups; }, [groups]);
@@ -101,6 +137,12 @@ function App() {
     fetchHistory();
   }, []);
 
+  useEffect(() => {
+    setTuning({ ...MODE_PRESETS[selectedMode] });
+  }, [selectedMode]);
+
+  const progressWidth = useMemo(() => `${analysisProgress.percent}%`, [analysisProgress.percent]);
+
   const fetchHistory = async () => {
     const result = await get('/api/history');
     if (result?.history) {
@@ -140,11 +182,14 @@ function App() {
     await handleDropPath(manualPath);
   };
 
+  const handleTuningChange = (key, value) => {
+    setTuning((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handleStartAnalysis = async () => {
     if (!selectedFolder) return;
 
     closeComparePanel();
-    const mode = MODES[selectedMode];
 
     setIsAnalyzing(true);
     setAnalysisMessage('');
@@ -155,12 +200,12 @@ function App() {
       const scanResult = await post('/api/scan', { folder: selectedFolder });
       const images = scanResult?.images?.map((img) => img.name) || [];
 
-      if (mode.strategy === 'dual') {
+      if (tuning.strategy === 'dual') {
         setAnalysisProgress({ active: true, percent: 40, stage: '提取特征' });
         await post('/api/embed', { folder: selectedFolder, images });
         setAnalysisProgress({ active: true, percent: 65, stage: '计算哈希' });
         await post('/api/hash', { folder: selectedFolder, images });
-      } else if (mode.strategy === 'phash') {
+      } else if (tuning.strategy === 'phash') {
         setAnalysisProgress({ active: true, percent: 60, stage: '计算哈希' });
         await post('/api/hash', { folder: selectedFolder, images });
       }
@@ -168,14 +213,14 @@ function App() {
       setAnalysisProgress({ active: true, percent: 85, stage: '生成分组' });
       const result = await post('/api/groups', {
         folder: selectedFolder,
-        strategy: mode.strategy,
-        threshold: mode.strategy === 'dual' ? mode.dualThreshold.clip : mode.threshold,
-        clip_threshold: mode.strategy === 'dual' ? mode.dualThreshold.clip : undefined,
-        phash_threshold: mode.strategy === 'dual' ? mode.dualThreshold.phash : undefined,
-        enhanced_persona: mode.personEnhance?.enabled,
-        identity_penalty_strength: mode.personEnhance?.weight,
-        identity_diff_threshold: mode.personEnhance?.diffThreshold,
-        loose_threshold: 0.85,
+        strategy: tuning.strategy,
+        threshold: tuning.strategy === 'dual' ? tuning.clipThreshold : tuning.threshold,
+        clip_threshold: tuning.strategy === 'dual' ? tuning.clipThreshold : undefined,
+        phash_threshold: tuning.strategy === 'dual' ? tuning.phashThreshold : undefined,
+        enhanced_persona: true,
+        identity_penalty_strength: tuning.identityPenaltyStrength,
+        identity_diff_threshold: tuning.identityDiffThreshold,
+        loose_threshold: tuning.looseThreshold,
       });
 
       if (result) {
@@ -194,7 +239,7 @@ function App() {
       setIsAnalyzing(false);
       setTimeout(() => {
         setAnalysisProgress((prev) => prev.percent === 100 ? { active: false, percent: 0, stage: '' } : prev);
-      }, 500);
+      }, 800);
     }
   };
 
@@ -264,31 +309,60 @@ function App() {
     setComparePanel((prev) => ({ ...prev, selectedIndex: index }));
   };
 
-  const handlePromoteOptimal = (memberName) => {
-    if (!memberName || !comparePanel.group) return;
+  const persistWinnerPreference = async (groupMembers, memberName) => {
+    if (!selectedFolder || !groupMembers?.length || !memberName) return;
+    await post('/api/preferences/winner', {
+      folder: selectedFolder,
+      members: groupMembers.map((m) => m.name),
+      winner: memberName,
+    });
+  };
 
-    setGroups((prev) => prev.map((g) => {
-      if (g.id !== comparePanel.group.id) return g;
+  const recalcStatsFromGroups = (nextGroups) => {
+    const toRemove = nextGroups.flatMap((g) => g.members).filter((m) => m.to_remove).length;
+    setStats((prevStats) => ({
+      ...prevStats,
+      to_remove: toRemove,
+      to_keep: Math.max(imageCount - toRemove, 0),
+    }));
+  };
+
+  const handleSetWinnerFromGrid = async (groupId, memberName) => {
+    const targetGroup = groupsRef.current.find((g) => g.id === groupId);
+    if (!targetGroup || !memberName) return;
+    const nextGroups = groupsRef.current.map((g) => {
+      if (g.id !== groupId) return g;
       return {
         ...g,
         winner: memberName,
         winner_size: g.members.find((m) => m.name === memberName)?.size || g.winner_size,
         members: g.members.map((m) => ({ ...m, to_remove: m.name === memberName ? false : m.to_remove })),
       };
-    }));
-
-    setStats((prevStats) => {
-      const nextGroups = groupsRef.current.map((g) => {
-        if (g.id !== comparePanel.group.id) return g;
-        return {
-          ...g,
-          winner: memberName,
-          members: g.members.map((m) => ({ ...m, to_remove: m.name === memberName ? false : m.to_remove })),
-        };
-      });
-      const toRemove = nextGroups.flatMap((g) => g.members).filter((m) => m.to_remove).length;
-      return { ...prevStats, to_remove: toRemove, to_keep: Math.max(imageCount - toRemove, 0) };
     });
+    setGroups(nextGroups);
+    recalcStatsFromGroups(nextGroups);
+    await persistWinnerPreference(targetGroup.members, memberName);
+  };
+
+  const handleToggleRemoveFromGrid = (groupId, memberName) => {
+    const nextGroups = groupsRef.current.map((g) => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        members: g.members.map((m) => {
+          if (m.name !== memberName) return m;
+          if (m.name === g.winner) return { ...m, to_remove: false };
+          return { ...m, to_remove: !m.to_remove };
+        }),
+      };
+    });
+    setGroups(nextGroups);
+    recalcStatsFromGroups(nextGroups);
+  };
+
+  const handlePromoteOptimal = async (memberName) => {
+    if (!memberName || !comparePanel.group) return;
+    await handleSetWinnerFromGrid(comparePanel.group.id, memberName);
   };
 
   const handleUndo = async () => {
@@ -327,7 +401,7 @@ function App() {
       const result = await post('/api/move', {
         folder: selectedFolder,
         moves,
-        strategy: MODES[selectedMode].strategy,
+        strategy: tuning.strategy,
       });
 
       if (result?.success) {
@@ -385,37 +459,55 @@ function App() {
             </form>
           </div>
 
-          <div className="mt-3 flex flex-col gap-3 border-t border-gray-100 pt-3 dark:border-gray-800 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0 text-xs text-gray-500 dark:text-gray-400">
-              <span className="font-medium text-gray-700 dark:text-gray-200">{selectedFolder ? '已选' : '未选择'}</span>
-              {selectedFolder ? `：${selectedFolder}` : ''}
-              {imageCount ? ` · ${imageCount} 张` : ''}
-            </div>
+          <div className="mt-3 flex flex-col gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0 text-xs text-gray-500 dark:text-gray-400">
+                <span className="font-medium text-gray-700 dark:text-gray-200">{selectedFolder ? '已选' : '未选择'}</span>
+                {selectedFolder ? `：${selectedFolder}` : ''}
+                {imageCount ? ` · ${imageCount} 张` : ''}
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {Object.values(MODES).map((mode) => (
+              <div className="flex flex-wrap items-center gap-2">
+                {Object.values(MODE_PRESETS).map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setSelectedMode(mode.id)}
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${selectedMode === mode.id ? 'bg-sky-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
                 <button
-                  key={mode.id}
-                  onClick={() => setSelectedMode(mode.id)}
-                  className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${selectedMode === mode.id ? 'bg-sky-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                  onClick={() => setShowModeTuning((prev) => !prev)}
+                  className="rounded-full px-3 py-1.5 text-sm font-medium text-gray-500 transition hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
                 >
-                  {mode.label}
+                  {showModeTuning ? '收起微调' : '展开微调'}
                 </button>
-              ))}
-              <button
-                onClick={() => setShowModeTuning((prev) => !prev)}
-                className="rounded-full px-3 py-1.5 text-sm font-medium text-gray-500 transition hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-              >
-                微调
-              </button>
+              </div>
             </div>
-          </div>
 
-          {showModeTuning && (
-            <div className="mt-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
-              当前只保留 3 个模式入口：快速 / 标准 / 严格。更细参数先折叠，避免首页变复杂。
-            </div>
-          )}
+            {showModeTuning && (
+              <div className="flex flex-wrap gap-3">
+                <SliderControl label="CLIP 阈值" value={tuning.clipThreshold} min={0.8} max={0.99} step={0.01} onChange={(value) => handleTuningChange('clipThreshold', clamp(value, 0.8, 0.99))} format={(value) => value.toFixed(2)} />
+                <SliderControl label="Hash 阈值" value={tuning.phashThreshold} min={4} max={16} step={1} onChange={(value) => handleTuningChange('phashThreshold', clamp(value, 4, 16))} />
+                <SliderControl label="人物惩罚" value={tuning.identityPenaltyStrength} min={0} max={1.2} step={0.05} onChange={(value) => handleTuningChange('identityPenaltyStrength', clamp(value, 0, 1.2))} format={(value) => value.toFixed(2)} />
+                <SliderControl label="人物差异阈值" value={tuning.identityDiffThreshold} min={0.5} max={0.95} step={0.01} onChange={(value) => handleTuningChange('identityDiffThreshold', clamp(value, 0.5, 0.95))} format={(value) => value.toFixed(2)} />
+                <SliderControl label="边缘并组" value={tuning.looseThreshold} min={0.7} max={0.95} step={0.01} onChange={(value) => handleTuningChange('looseThreshold', clamp(value, 0.7, 0.95))} format={(value) => value.toFixed(2)} />
+              </div>
+            )}
+
+            {analysisProgress.active && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                  <span>{analysisProgress.stage}</span>
+                  <span>{analysisProgress.percent}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
+                  <div className="h-full rounded-full bg-sky-500 transition-all duration-300" style={{ width: progressWidth }} />
+                </div>
+              </div>
+            )}
+          </div>
         </header>
 
         <section className="mt-3 rounded-[22px] border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm dark:border-gray-800 dark:bg-gray-900">
@@ -426,14 +518,13 @@ function App() {
             <span>{stats.to_remove || 0} 张待移除</span>
             <span>{stats.to_keep || 0} 张保留</span>
             <span className={`${pythonReady ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{backendState.message}</span>
-            {analysisProgress.active && <span>{analysisProgress.stage} {analysisProgress.percent}%</span>}
             {undoFeedback && <span className={undoFeedback.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}>{undoFeedback.message}</span>}
             {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
           </div>
         </section>
 
         <main className="mt-4">
-          <GroupGrid groups={groups} onGroupClick={handleGroupClick} />
+          <GroupGrid groups={groups} onGroupClick={handleGroupClick} onToggleRemove={handleToggleRemoveFromGrid} onSetWinner={handleSetWinnerFromGrid} />
         </main>
       </div>
 

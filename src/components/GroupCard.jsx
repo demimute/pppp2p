@@ -7,7 +7,7 @@ const SCENE_LABELS = {
   chat: '聊天图片',
 };
 
-function GroupCard({ group, groupIndex, onClick }) {
+function GroupCard({ group, groupIndex, onClick, onToggleRemove, onSetWinner }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [brokenImages, setBrokenImages] = useState({});
 
@@ -78,8 +78,26 @@ function GroupCard({ group, groupIndex, onClick }) {
                     onError={() => setBrokenImages((prev) => ({ ...prev, [member.name]: true }))}
                   />
 
-                  {isWinner && <span className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-1 text-[10px] font-semibold text-white">保留</span>}
-                  {isMarkedForRemoval && <span className="absolute right-2 top-2 rounded-full bg-red-500 px-2 py-1 text-[10px] font-semibold text-white">移除</span>}
+                  <button
+                    type="button"
+                    className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold text-white ${isWinner ? 'bg-emerald-500' : 'bg-gray-900/70 dark:bg-white/20'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSetWinner?.(group.id, member.name);
+                    }}
+                  >
+                    {isWinner ? '保留' : '设为保留'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`absolute right-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold text-white ${isMarkedForRemoval ? 'bg-red-500' : 'bg-gray-900/70 dark:bg-white/20'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleRemove?.(group.id, member.name);
+                    }}
+                  >
+                    {isMarkedForRemoval ? '移除' : '保留中'}
+                  </button>
                 </div>
                 <div className="px-2.5 py-2">
                   <p className="truncate text-xs font-medium text-gray-900 dark:text-white">{member.name}</p>

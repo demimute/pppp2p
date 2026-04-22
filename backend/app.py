@@ -37,6 +37,7 @@ from engine.persona_engine import (
     POSE_SAME_BOOST,
 )
 from engine.intelligence import analyze_distribution, find_optimal_threshold, estimate_stats, suggest_strategy
+from engine.scene_classifier import classify_image_scenes, classify_group_scene
 
 app = Flask(__name__)
 CORS(app)
@@ -444,6 +445,7 @@ def groups():
 
         embeddings = {}
         hashes = {}
+        image_scenes = classify_image_scenes(list(sizes.keys()), folder)
 
         if strategy == "clip":
             _await_prewarm(folder)
@@ -561,6 +563,7 @@ def groups():
                 for name in component:
                     pair_info = member_meta[optimal_name].get(name, {}) if name != optimal_name else {}
                     displayed_similarity = 1.0 if name == optimal_name else pair_edges[optimal_name].get(name, max(pair_edges[name].values(), default=0.0))
+                    scene_meta = image_scenes.get(name, {})
                     members.append(GroupMember(
                         name=name,
                         similarity=round(displayed_similarity, 4),
@@ -572,9 +575,13 @@ def groups():
                         pose_similarity=pair_info.get('pose_similarity', 0.0),
                         person_adjustment=pair_info.get('person_adjustment', 0.0),
                         decision_reason=pair_info.get('decision_reason', 'pair_component_member'),
+                        scene_type=scene_meta.get('scene_type', 'unknown'),
+                        scene_confidence=scene_meta.get('scene_confidence', 0.0),
+                        scene_signals=scene_meta.get('scene_signals', []),
                     ))
 
                 total_identity = sum(getattr(m, 'person_identity_score', 0.0) for m in members if m.name != optimal_name)
+                group_scene = classify_group_scene([m.name for m in members], image_scenes)
                 group_list.append(Group(
                     id=group_id,
                     winner=optimal_name,
@@ -585,15 +592,27 @@ def groups():
                     persona_boost=round(total_identity / max(len(members) - 1, 1), 4),
                     group_final_score=round(sum(m.similarity for m in members) / len(members), 4),
                     group_decision_reason='pairwise_monotonic_component',
+                    group_scene_type=group_scene.get('group_scene_type', 'unknown'),
+                    group_scene_confidence=group_scene.get('group_scene_confidence', 0.0),
+                    group_scene_signals=group_scene.get('group_scene_signals', []),
                 ))
                 group_id += 1
 
         else:
             return jsonify({"error": f"unknown strategy: {strategy}"}), 400
 
-        # Fill in winner_size from actual file sizes
+        # Fill in winner_size from actual file sizes and attach display-only scene tags.
         for g in group_list:
             g.winner_size = sizes.get(g.winner, 0)
+            for m in g.members:
+                scene_meta = image_scenes.get(m.name, {})
+                m.scene_type = scene_meta.get('scene_type', 'unknown')
+                m.scene_confidence = scene_meta.get('scene_confidence', 0.0)
+                m.scene_signals = scene_meta.get('scene_signals', [])
+            group_scene = classify_group_scene([m.name for m in g.members], image_scenes)
+            g.group_scene_type = group_scene.get('group_scene_type', 'unknown')
+            g.group_scene_confidence = group_scene.get('group_scene_confidence', 0.0)
+            g.group_scene_signals = group_scene.get('group_scene_signals', [])
 
         # Calculate stats
         total_groups = len(group_list)
@@ -623,6 +642,9 @@ def groups():
                     "identity_version": getattr(g, 'identity_version', 'v1'),
                     "group_final_score": getattr(g, 'group_final_score', 0.0),
                     "group_decision_reason": getattr(g, 'group_decision_reason', ''),
+                    "group_scene_type": getattr(g, 'group_scene_type', 'unknown'),
+                    "group_scene_confidence": getattr(g, 'group_scene_confidence', 0.0),
+                    "group_scene_signals": getattr(g, 'group_scene_signals', []),
                     "members": [
                         {
                             "name": m.name,
@@ -640,6 +662,9 @@ def groups():
                             "person_adjustment": getattr(m, 'person_adjustment', 0.0),
                             "decision_reason": getattr(m, 'decision_reason', ''),
                             "hard_rejected_by_identity": getattr(m, 'hard_rejected_by_identity', False),
+                            "scene_type": getattr(m, 'scene_type', 'unknown'),
+                            "scene_confidence": getattr(m, 'scene_confidence', 0.0),
+                            "scene_signals": getattr(m, 'scene_signals', []),
                         }
                         for m in g.members
                     ],

@@ -79,10 +79,16 @@ class GroupMember:
     person_adjustment: float = 0.0
     # Human-readable decision reason
     decision_reason: str = ""
+    # Scene annotation fields for display only.
+    scene_type: str = "unknown"
+    scene_confidence: float = 0.0
+    scene_signals: List[str] = None
 
     def __post_init__(self):
         if self.persona_vector is None:
             object.__setattr__(self, 'persona_vector', [])
+        if self.scene_signals is None:
+            object.__setattr__(self, 'scene_signals', [])
 
 
 @dataclass
@@ -103,6 +109,10 @@ class Group:
     group_final_score: float = 0.0
     # Overall decision reason for this group.
     group_decision_reason: str = ""
+    # Scene annotation fields for display only.
+    group_scene_type: str = "unknown"
+    group_scene_confidence: float = 0.0
+    group_scene_signals: List[str] = field(default_factory=list)
 
 
 @dataclass

@@ -1,6 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import { toPreviewUrl } from '../utils/fileUrl.js';
 
+const SCENE_LABELS = {
+  screenshot: '截图',
+  burst: '连拍',
+  chat: '聊天图片',
+};
+
 function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [brokenImages, setBrokenImages] = useState({});
@@ -36,6 +42,7 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
     if (member.removed || member.hidden) return false;
     return !!(member.path || member.name);
   });
+  const sceneLabel = SCENE_LABELS[group.group_scene_type] || null;
 
   if (visibleMembers.length < 2) {
     return null;
@@ -47,13 +54,18 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       {/* Group header */}
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="bg-primary/10 text-primary text-sm font-semibold px-2 py-0.5 rounded">
             第{groupIndex + 1}组
           </span>
           <span className="text-sm text-gray-600 dark:text-gray-400">
             {visibleMembers.length} 张相似
           </span>
+          {sceneLabel && (
+            <span className="text-xs font-medium px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+              {sceneLabel}
+            </span>
+          )}
           {group.winner_size && (
             <span className="text-xs text-gray-500 dark:text-gray-500">
               最优项: {formatFileSize(group.winner_size)}
@@ -138,7 +150,7 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
                   )}
 
                   {/* Person identity state badge — new disambiguation model */}
-                  {(member.person_identity_state !== undefined || member.persona_similarity !== undefined) && (
+                  {member.person_identity_state !== undefined && (
                     <div className={`absolute bottom-1 left-1 text-xs px-1 py-0.5 rounded font-medium ${
                       member.person_identity_state === 'same'
                         ? 'bg-green-500 text-white'
@@ -150,8 +162,7 @@ function GroupCard({ group, groupIndex, onClick, selectedStrategy }) {
                     }`}>
                       {member.person_identity_state === 'same' ? '✓ 同人' :
                        member.person_identity_state === 'different' ? '✗ 异人' :
-                       member.person_identity_state === 'uncertain' ? '? 待定' :
-                       member.persona_similarity !== undefined ? `🧑 ${Math.round(member.persona_similarity * 100)}%` : ''}
+                       member.person_identity_state === 'uncertain' ? '? 待定' : '人物待判'}
                     </div>
                   )}
                 </div>

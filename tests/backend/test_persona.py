@@ -473,6 +473,70 @@ class TestDualGroupingIdentityReject:
         payload = response.get_json()
         assert payload['groups'][0]['identity_version'] == 'v2-experiment'
 
+    def test_group_scene_type_is_exposed_for_screenshot_cluster(self, tmp_path):
+        from app import app
+        from PIL import Image
+
+        client = app.test_client()
+        folder = str(tmp_path)
+        for name in ('Screenshot_001.png', 'Screenshot_002.png'):
+            Image.new('RGB', (1179, 2556), color=(240, 240, 240)).save(tmp_path / name)
+
+        sizes = {
+            'Screenshot_001.png': (tmp_path / 'Screenshot_001.png').stat().st_size,
+            'Screenshot_002.png': (tmp_path / 'Screenshot_002.png').stat().st_size,
+        }
+        import app as app_module
+        app_module._file_sizes[folder] = sizes
+
+        winner_member = GroupMember(name='Screenshot_001.png', similarity=0.99, to_remove=False)
+        same_member = GroupMember(name='Screenshot_002.png', similarity=0.98, to_remove=True)
+        clip_group = Group(id=1, winner='Screenshot_001.png', winner_size=sizes['Screenshot_001.png'], members=[winner_member, same_member])
+
+        with patch('app.find_groups_hash', return_value=[clip_group]):
+            response = client.post('/api/groups', json={
+                'folder': folder,
+                'strategy': 'hash',
+                'threshold': 8,
+            })
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload['groups'][0]['group_scene_type'] == 'screenshot'
+        assert payload['groups'][0]['members'][0]['scene_type'] == 'screenshot'
+
+    def test_group_scene_type_falls_back_to_burst_for_unknown_dense_cluster(self, tmp_path):
+        from app import app
+        from PIL import Image
+
+        client = app.test_client()
+        folder = str(tmp_path)
+        image_names = ['IMG_1001.jpg', 'IMG_1002.jpg', 'IMG_1003.jpg']
+        for idx, name in enumerate(image_names):
+            Image.new('RGB', (1600, 1200), color=(100 + idx, 120, 140)).save(tmp_path / name)
+
+        sizes = {name: (tmp_path / name).stat().st_size for name in image_names}
+        import app as app_module
+        app_module._file_sizes[folder] = sizes
+
+        members = [
+            GroupMember(name='IMG_1001.jpg', similarity=1.0, to_remove=False),
+            GroupMember(name='IMG_1002.jpg', similarity=0.97, to_remove=True),
+            GroupMember(name='IMG_1003.jpg', similarity=0.96, to_remove=True),
+        ]
+        clip_group = Group(id=1, winner='IMG_1001.jpg', winner_size=sizes['IMG_1001.jpg'], members=members)
+
+        with patch('app.find_groups_hash', return_value=[clip_group]):
+            response = client.post('/api/groups', json={
+                'folder': folder,
+                'strategy': 'hash',
+                'threshold': 8,
+            })
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload['groups'][0]['group_scene_type'] == 'burst'
+
 
 if __name__ == '__main__':
     import pytest

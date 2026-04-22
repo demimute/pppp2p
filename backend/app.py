@@ -4,6 +4,7 @@ import os
 import shutil
 import hashlib
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
@@ -472,6 +473,9 @@ def hash_images():
 @app.route('/api/groups', methods=['POST'])
 def groups():
     try:
+        started_at = time.perf_counter()
+        timings: Dict[str, float] = {}
+
         data = request.get_json()
         folder = data.get('folder', '').strip()
         strategy = data.get('strategy', 'clip')
@@ -502,7 +506,9 @@ def groups():
 
         embeddings = {}
         hashes = {}
+        stage_started_at = time.perf_counter()
         image_scenes = classify_image_scenes(list(sizes.keys()), folder)
+        timings['scene_classify'] = round(time.perf_counter() - stage_started_at, 4)
 
         if strategy == 'clip':
             _await_prewarm(folder)
@@ -510,16 +516,24 @@ def groups():
             embeddings = dict(_embeddings_cache.get(folder, {}))
             missing_images = [name for name in images if name not in embeddings]
             if missing_images:
+                embed_started_at = time.perf_counter()
                 embeddings.update(compute_embeddings(missing_images, folder))
                 _embeddings_cache[folder] = embeddings
+                timings['embed'] = round(time.perf_counter() - embed_started_at, 4)
+            group_started_at = time.perf_counter()
             group_list = find_groups_clip(embeddings, threshold, loose_threshold, sizes)
+            timings['group_build'] = round(time.perf_counter() - group_started_at, 4)
         elif strategy in {'hash', 'phash'}:
             hashes = _hashes_cache.get(folder, {})
             if not hashes:
                 images = list(sizes.keys())
+                hash_started_at = time.perf_counter()
                 hashes = compute_hashes(images, folder)
                 _hashes_cache[folder] = hashes
+                timings['hash'] = round(time.perf_counter() - hash_started_at, 4)
+            group_started_at = time.perf_counter()
             group_list = find_groups_hash(hashes, max_hamming=int(threshold))
+            timings['group_build'] = round(time.perf_counter() - group_started_at, 4)
         elif strategy in {'size', 'filesize'}:
             from collections import defaultdict
             size_groups = defaultdict(list)
@@ -550,18 +564,25 @@ def groups():
             images = list(sizes.keys())
             missing_embeddings = [name for name in images if name not in embeddings]
             if missing_embeddings:
+                embed_started_at = time.perf_counter()
                 embeddings.update(compute_embeddings(missing_embeddings, folder))
                 _embeddings_cache[folder] = embeddings
+                timings['embed'] = round(time.perf_counter() - embed_started_at, 4)
             if not hashes:
+                hash_started_at = time.perf_counter()
                 hashes = compute_hashes(images, folder)
                 _hashes_cache[folder] = hashes
+                timings['hash'] = round(time.perf_counter() - hash_started_at, 4)
             if enhanced_persona and not persona_feats:
+                persona_started_at = time.perf_counter()
                 persona_feats = compute_persona_features(images, folder)
                 _persona_cache[folder] = persona_feats
+                timings['persona'] = round(time.perf_counter() - persona_started_at, 4)
 
             from models import GroupMember, Group
 
             image_names = sorted(images)
+            pair_started_at = time.perf_counter()
             pair_edges, member_meta = _build_dual_edges_parallel(
                 image_names,
                 embeddings,
@@ -574,6 +595,8 @@ def groups():
                 identity_same_threshold,
                 identity_diff_threshold,
             )
+
+            timings['pair_build'] = round(time.perf_counter() - pair_started_at, 4)
 
             visited = set()
             components = []
@@ -687,6 +710,9 @@ def groups():
                 'suggested_strategy': suggest_strategy(len(sizes), total_groups),
             }
 
+        timings['total'] = round(time.perf_counter() - started_at, 4)
+        app.logger.info('groups timing: %s', json.dumps({'folder': folder, 'strategy': strategy, 'timings': timings}, ensure_ascii=False))
+
         return jsonify({
             'groups': [
                 {
@@ -733,6 +759,7 @@ def groups():
                 'to_keep': to_keep,
             },
             'intelligence': intelligence,
+            'timings': timings,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -24,6 +24,8 @@ make better decisions on same-template/different-person cases.
 """
 
 import sys
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 _backend_root = Path(__file__).parent.parent
@@ -97,10 +99,18 @@ def compute_persona_features(images: List[str], folder: str) -> Dict[str, List[f
         else:
             uncached.append(img_name)
 
-    for img_name in uncached:
-        vec = _extract_persona_vec(img_name, folder_path / img_name)
-        features[img_name] = vec
-        set_cache(folder, img_name, vec, cache_type=cache_type)
+    if uncached:
+        max_workers = min(8, max(1, (os.cpu_count() or 4)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_extract_persona_vec, img_name, folder_path / img_name): img_name
+                for img_name in uncached
+            }
+            for future in as_completed(futures):
+                img_name = futures[future]
+                vec = future.result()
+                features[img_name] = vec
+                set_cache(folder, img_name, vec, cache_type=cache_type)
 
     return features
 

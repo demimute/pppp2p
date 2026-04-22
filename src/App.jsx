@@ -221,10 +221,12 @@ function App() {
       const images = scanResult?.images?.map((img) => img.name) || [];
 
       if (tuning.strategy === 'dual') {
-        setAnalysisProgress({ active: true, percent: 40, stage: '提取特征' });
-        await post('/api/embed', { folder: selectedFolder, images });
-        setAnalysisProgress({ active: true, percent: 65, stage: '计算哈希' });
-        await post('/api/hash', { folder: selectedFolder, images });
+        setAnalysisProgress({ active: true, percent: 40, stage: '提取特征与计算哈希' });
+        await Promise.all([
+          post('/api/embed', { folder: selectedFolder, images }),
+          post('/api/hash', { folder: selectedFolder, images }),
+        ]);
+        setAnalysisProgress({ active: true, percent: 65, stage: '特征准备完成' });
       }
 
       setAnalysisProgress({ active: true, percent: 85, stage: '生成分组' });

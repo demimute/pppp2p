@@ -74,14 +74,14 @@ function GroupCard({ group, groupIndex, onClick, onToggleRemove, onApplyGroupAct
               <button
                 key={member.name}
                 type="button"
-                className={`relative overflow-hidden rounded-[18px] border bg-gray-50 text-left transition border-gray-200 dark:border-gray-800 ${isHovered ? 'scale-[1.02] shadow-lg' : ''}`}
+                className={`relative overflow-hidden rounded-[18px] border bg-white text-left transition border-gray-200 dark:border-gray-800 dark:bg-gray-900 ${isHovered ? 'scale-[1.02] shadow-lg' : ''}`}
                 onClick={() => onClick(index)}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 onKeyDown={(e) => handleKeyDown(e, index)}
                 aria-label={`${member.name}，当前状态${isMarkedForRemoval ? '移除' : '保留'}`}
               >
-                <div className="relative aspect-square overflow-hidden bg-gray-100 dark:bg-gray-800">
+                <div className="relative aspect-square overflow-hidden bg-gray-200 dark:bg-gray-950">
                   <div className="absolute inset-0 flex items-center justify-center">
                     <span className="text-2xl opacity-30">🖼️</span>
                   </div>

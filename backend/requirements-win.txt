@@ -1,0 +1,8 @@
+flask
+flask-cors
+pillow
+imagehash
+numpy
+open-clip-torch
+torch
+pyinstaller

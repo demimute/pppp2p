@@ -227,6 +227,30 @@ function isPortOpen(port, host = '127.0.0.1') {
   });
 }
 
+function resolveBackendLaunch() {
+  const env = { ...process.env, DEDUP_BACKEND_PORT: String(BACKEND_PORT) };
+
+  if (process.platform === 'win32' && app.isPackaged) {
+    const packagedExe = path.join(process.resourcesPath, 'backend', 'backend.exe');
+    if (fs.existsSync(packagedExe)) {
+      return {
+        command: packagedExe,
+        args: [],
+        env,
+        label: 'backend.exe',
+      };
+    }
+  }
+
+  const pythonScript = path.join(__dirname, '../backend/app.py');
+  return {
+    command: 'python3.11',
+    args: [pythonScript],
+    env,
+    label: 'python3.11',
+  };
+}
+
 async function startPythonBackend() {
   if (pythonProcess || backendManaged) return;
 
@@ -241,10 +265,11 @@ async function startPythonBackend() {
     return;
   }
 
-  const pythonScript = path.join(__dirname, '../backend/app.py');
-  pythonProcess = spawn('python3.11', [pythonScript], {
+  const backendLaunch = resolveBackendLaunch();
+  trace('[Backend launch]:', backendLaunch.label);
+  pythonProcess = spawn(backendLaunch.command, backendLaunch.args, {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, DEDUP_BACKEND_PORT: String(BACKEND_PORT) },
+    env: backendLaunch.env,
   });
   backendManaged = true;
 

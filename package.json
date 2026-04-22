@@ -28,7 +28,15 @@
     "files": [
       "electron/**/*",
       "dist/**/*",
-      "resources/**/*"
+      "resources/**/*",
+      "backend/app.py",
+      "backend/cache.py",
+      "backend/models.py",
+      "backend/engine/**/*.py",
+      "!backend/**/__pycache__/**",
+      "!backend/**/*.pyc",
+      "!backend/README.md",
+      "!**/.DS_Store"
     ],
     "mac": {
       "target": "dmg",

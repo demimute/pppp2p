@@ -30,15 +30,15 @@ jobs:
         run: npm run build:electron:win
 
       - name: Archive unpacked portable directory
-        run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/DedupStudio-win-x64-unpacked.zip
+        run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/PPPP2P-win-x64-unpacked.zip
         shell: pwsh
 
       - name: Upload Windows build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DedupStudio-win-x64-build
+          name: PPPP2P-win-x64-build
           path: |
             dist-electron/*.exe
-            dist-electron/DedupStudio-win-x64-unpacked.zip
+            dist-electron/PPPP2P-win-x64-unpacked.zip
             dist-electron/*.yml
           if-no-files-found: warn

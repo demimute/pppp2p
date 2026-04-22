@@ -29,7 +29,7 @@ jobs:
         run: npm run build:electron:win
 
       - name: Archive unpacked portable directory
-        run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/DedupStudio-win-x64-unpacked.zip
+        run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/PPPP2P-win-x64-unpacked.zip
         shell: pwsh
 
       - name: Upload release assets
@@ -37,6 +37,6 @@ jobs:
         with:
           files: |
             dist-electron/*.exe
-            dist-electron/DedupStudio-win-x64-unpacked.zip
+            dist-electron/PPPP2P-win-x64-unpacked.zip
             docs/windows-portable-readme.txt
           generate_release_notes: true

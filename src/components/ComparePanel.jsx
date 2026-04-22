@@ -1,11 +1,14 @@
-import React, { useEffect, useCallback, useMemo, useState } from 'react';
+import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { toPreviewUrl } from '../utils/fileUrl.js';
 
 function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, onNavigate, onPromoteOptimal }) {
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragState = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
 
   useEffect(() => {
     setZoom(1);
+    setPan({ x: 0, y: 0 });
   }, [selectedIndex, open]);
 
   const adjustZoom = useCallback((delta) => {
@@ -81,7 +84,7 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
             <button onClick={() => adjustZoom(-0.25)} className="rounded-full border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">-</button>
             <span className="text-sm text-gray-500 dark:text-gray-400">{Math.round(zoom * 100)}%</span>
             <button onClick={() => adjustZoom(0.25)} className="rounded-full border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">+</button>
-            <button onClick={() => setZoom(1)} className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
+            <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
               还原
             </button>
             <div className="ml-auto flex items-center gap-3">
@@ -104,12 +107,32 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
                   e.preventDefault();
                   adjustZoom(e.deltaY > 0 ? -0.12 : 0.12);
                 }}
+                onMouseDown={(e) => {
+                  if (e.button !== 1) return;
+                  e.preventDefault();
+                  dragState.current = {
+                    active: true,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    originX: pan.x,
+                    originY: pan.y,
+                  };
+                }}
+                onMouseMove={(e) => {
+                  if (!dragState.current.active) return;
+                  e.preventDefault();
+                  const dx = e.clientX - dragState.current.startX;
+                  const dy = e.clientY - dragState.current.startY;
+                  setPan({ x: dragState.current.originX + dx, y: dragState.current.originY + dy });
+                }}
+                onMouseUp={() => { dragState.current.active = false; }}
+                onMouseLeave={() => { dragState.current.active = false; }}
               >
                 <img
                   src={toPreviewUrl(selectedImage.path || selectedImage.name)}
                   alt={selectedImage.name}
                   className="max-h-full max-w-full origin-center rounded-lg object-contain transition-transform duration-100"
-                  style={{ transform: `scale(${zoom})` }}
+                  style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, cursor: dragState.current.active ? 'grabbing' : 'default' }}
                   onDoubleClick={() => setZoom((prev) => prev === 1 ? 2 : 1)}
                   onError={(e) => { e.target.style.opacity = '0'; }}
                 />
@@ -154,8 +177,13 @@ function ComparePanel({ open, group, selectedIndex, onClose, onAction, onSkip, o
                 </div>
               </div>
 
-              <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">
-                鼠标滚轮缩放，双击快速放大，左右方向键切图。
+              <div className="space-y-3 px-4 py-4 text-sm text-gray-500 dark:text-gray-400">
+                <div>操作指南</div>
+                <div>鼠标滚轮：放大缩小</div>
+                <div>双击图片：快速切换缩放</div>
+                <div>按住鼠标中键：拖动图片</div>
+                <div>左右方向键：切换图片</div>
+                <div>K：保留，R：移除，S：下一张</div>
               </div>
             </aside>
           </div>

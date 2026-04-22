@@ -312,6 +312,7 @@ function App() {
       folder: selectedFolder,
       members: groupMembers.map((m) => m.name),
       winner: memberName,
+      states: Object.fromEntries(groupMembers.map((m) => [m.name, !!m.to_remove])),
     });
   };
 
@@ -341,7 +342,8 @@ function App() {
     await persistWinnerPreference(targetGroup.members, memberName);
   };
 
-  const handleToggleRemoveFromGrid = (groupId, memberName) => {
+  const handleToggleRemoveFromGrid = async (groupId, memberName) => {
+    const targetGroup = groupsRef.current.find((g) => g.id === groupId);
     const nextGroups = groupsRef.current.map((g) => {
       if (g.id !== groupId) return g;
       return {
@@ -355,6 +357,10 @@ function App() {
     });
     setGroups(nextGroups);
     recalcStatsFromGroups(nextGroups);
+    const updatedGroup = nextGroups.find((g) => g.id === groupId) || targetGroup;
+    if (updatedGroup) {
+      await persistWinnerPreference(updatedGroup.members, updatedGroup.winner);
+    }
   };
 
   const handlePromoteOptimal = async (memberName) => {

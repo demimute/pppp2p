@@ -86,25 +86,34 @@ def _group_signature(folder: str, member_names: List[str]) -> str:
     return hashlib.md5(payload.encode('utf-8')).hexdigest()
 
 
-def _remember_group_winner(folder: str, member_names: List[str], winner: str) -> None:
+def _remember_group_winner(folder: str, member_names: List[str], winner: str, states: Optional[Dict[str, bool]] = None) -> None:
     if not folder or not member_names or not winner:
         return
     preferences = _load_preferences()
     signature = _group_signature(folder, member_names)
     updated_at = datetime.now().isoformat()
-    preferences.setdefault('group_winners', {})
-    preferences.setdefault('winner_history', {})
-    preferences['group_winners'][signature] = {
-        'folder': folder,
-        'members': sorted(member_names),
-        'winner': winner,
-        'updated_at': updated_at,
+    preferences.setdefault("group_winners", {})
+    preferences.setdefault("winner_history", {})
+    preferences.setdefault("group_states", {})
+    normalized_states = {name: bool(states.get(name, False)) for name in member_names} if states else {}
+    preferences["group_winners"][signature] = {
+        "folder": folder,
+        "members": sorted(member_names),
+        "winner": winner,
+        "updated_at": updated_at,
     }
-    preferences['winner_history'][f"{folder}::{winner}"] = {
-        'folder': folder,
-        'winner': winner,
-        'members': sorted(member_names),
-        'updated_at': updated_at,
+    preferences["group_states"][signature] = {
+        "folder": folder,
+        "members": sorted(member_names),
+        "winner": winner,
+        "states": normalized_states,
+        "updated_at": updated_at,
+    }
+    preferences["winner_history"][f"{folder}::{winner}"] = {
+        "folder": folder,
+        "winner": winner,
+        "members": sorted(member_names),
+        "updated_at": updated_at,
     }
     _save_preferences(preferences)
 
@@ -114,29 +123,59 @@ def _restore_group_winner(folder: str, member_names: List[str]) -> Optional[str]
         return None
     preferences = _load_preferences()
     signature = _group_signature(folder, member_names)
-    record = preferences.get('group_winners', {}).get(signature)
+    record = preferences.get("group_winners", {}).get(signature)
     if record:
-        winner = record.get('winner')
+        winner = record.get("winner")
         if winner in member_names:
             return winner
 
-    winner_history = preferences.get('winner_history', {})
+    winner_history = preferences.get("winner_history", {})
     candidates = []
     member_name_set = set(member_names)
-    for key, item in winner_history.items():
-        if item.get('folder') != folder:
+    for item in winner_history.values():
+        if item.get("folder") != folder:
             continue
-        winner = item.get('winner')
+        winner = item.get("winner")
         if winner not in member_name_set:
             continue
-        overlap = len(member_name_set.intersection(set(item.get('members', []))))
-        candidates.append((overlap, item.get('updated_at', ''), winner))
+        overlap = len(member_name_set.intersection(set(item.get("members", []))))
+        candidates.append((overlap, item.get("updated_at", ""), winner))
 
     if not candidates:
         return None
 
     candidates.sort(reverse=True)
     return candidates[0][2]
+
+
+def _restore_group_states(folder: str, member_names: List[str]) -> Dict[str, bool]:
+    if not folder or not member_names:
+        return {}
+    preferences = _load_preferences()
+    signature = _group_signature(folder, member_names)
+    record = preferences.get("group_states", {}).get(signature)
+    if record:
+        states = record.get("states", {}) or {}
+        return {name: bool(states.get(name, False)) for name in member_names}
+
+    member_name_set = set(member_names)
+    candidates = []
+    for item in preferences.get("group_states", {}).values():
+        if item.get("folder") != folder:
+            continue
+        states = item.get("states", {}) or {}
+        overlap = len(member_name_set.intersection(set(item.get("members", []))))
+        state_overlap = len([name for name in member_names if name in states])
+        if overlap == 0 and state_overlap == 0:
+            continue
+        candidates.append((overlap, state_overlap, item.get("updated_at", ""), states))
+
+    if not candidates:
+        return {}
+
+    candidates.sort(reverse=True)
+    best_states = candidates[0][3]
+    return {name: bool(best_states.get(name, False)) for name in member_names if name in best_states}
 
 
 def _is_image(filename: str) -> bool:
@@ -610,11 +649,17 @@ def groups():
             return jsonify({'error': f'unknown strategy: {strategy}'}), 400
 
         for g in group_list:
-            restored_winner = _restore_group_winner(folder, [m.name for m in g.members])
+            member_names = [m.name for m in g.members]
+            restored_winner = _restore_group_winner(folder, member_names)
+            restored_states = _restore_group_states(folder, member_names)
             if restored_winner and restored_winner != g.winner:
                 g.winner = restored_winner
-                for m in g.members:
-                    m.to_remove = m.name != restored_winner
+            for m in g.members:
+                if m.name in restored_states:
+                    m.to_remove = restored_states[m.name]
+            winner_member = next((m for m in g.members if m.name == g.winner), None)
+            if winner_member:
+                winner_member.to_remove = False
             g.winner_size = sizes.get(g.winner, 0)
             for m in g.members:
                 scene_meta = image_scenes.get(m.name, {})
@@ -700,9 +745,10 @@ def remember_winner():
         folder = data.get('folder', '').strip()
         members = data.get('members', [])
         winner = data.get('winner', '').strip()
+        states = data.get('states', {}) or {}
         if not folder or not members or not winner:
             return jsonify({'error': 'folder, members and winner are required'}), 400
-        _remember_group_winner(folder, members, winner)
+        _remember_group_winner(folder, members, winner, states)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

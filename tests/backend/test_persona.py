@@ -181,11 +181,33 @@ def test_restore_group_winner_prefers_previous_winner_when_group_members_change(
         original = PREFERENCES_PATH.read_text(encoding='utf-8')
     try:
         PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        PREFERENCES_PATH.write_text('{"group_winners": {}, "winner_history": {}}', encoding='utf-8')
+        PREFERENCES_PATH.write_text('{"group_winners": {}, "winner_history": {}, "group_states": {}}', encoding='utf-8')
         folder = str(tmp_path)
-        _remember_group_winner(folder, ['a.jpg', 'b.jpg'], 'a.jpg')
+        _remember_group_winner(folder, ['a.jpg', 'b.jpg'], 'a.jpg', {'a.jpg': False, 'b.jpg': False})
         restored = _restore_group_winner(folder, ['a.jpg', 'b.jpg', 'c.jpg'])
         assert restored == 'a.jpg'
+    finally:
+        if original is None:
+            if PREFERENCES_PATH.exists():
+                PREFERENCES_PATH.unlink()
+        else:
+            PREFERENCES_PATH.write_text(original, encoding='utf-8')
+
+
+def test_restore_group_states_keeps_manual_keep_remove_without_move(tmp_path):
+    from app import _restore_group_states
+
+    original = None
+    if PREFERENCES_PATH.exists():
+        original = PREFERENCES_PATH.read_text(encoding='utf-8')
+    try:
+        PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PREFERENCES_PATH.write_text('{"group_winners": {}, "winner_history": {}, "group_states": {}}', encoding='utf-8')
+        folder = str(tmp_path)
+        _remember_group_winner(folder, ['a.jpg', 'b.jpg'], 'a.jpg', {'a.jpg': False, 'b.jpg': False})
+        restored_states = _restore_group_states(folder, ['a.jpg', 'b.jpg', 'c.jpg'])
+        assert restored_states['a.jpg'] is False
+        assert restored_states['b.jpg'] is False
     finally:
         if original is None:
             if PREFERENCES_PATH.exists():

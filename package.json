@@ -33,11 +33,16 @@
       "backend/cache.py",
       "backend/models.py",
       "backend/engine/**/*.py",
-      "backend/backend.exe",
       "!backend/**/__pycache__/**",
       "!backend/**/*.pyc",
       "!backend/README.md",
       "!**/.DS_Store"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/backend.exe",
+        "to": "backend/backend.exe"
+      }
     ],
     "mac": {
       "target": "dmg",

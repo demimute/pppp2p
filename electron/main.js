@@ -231,15 +231,25 @@ function resolveBackendLaunch() {
   const env = { ...process.env, DEDUP_BACKEND_PORT: String(BACKEND_PORT) };
 
   if (process.platform === 'win32' && app.isPackaged) {
-    const packagedExe = path.join(process.resourcesPath, 'backend', 'backend.exe');
-    if (fs.existsSync(packagedExe)) {
-      return {
-        command: packagedExe,
-        args: [],
-        env,
-        label: 'backend.exe',
-      };
+    const candidates = [
+      path.join(process.resourcesPath, 'backend', 'backend.exe'),
+      path.join(process.resourcesPath, 'backend.exe'),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'backend', 'backend.exe'),
+      path.join(path.dirname(process.execPath), 'resources', 'backend', 'backend.exe'),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return {
+          command: candidate,
+          args: [],
+          env,
+          label: candidate,
+        };
+      }
     }
+
+    throw new Error(`Bundled backend not found. Checked: ${candidates.join(', ')}`);
   }
 
   const pythonScript = path.join(__dirname, '../backend/app.py');
@@ -265,7 +275,19 @@ async function startPythonBackend() {
     return;
   }
 
-  const backendLaunch = resolveBackendLaunch();
+  let backendLaunch;
+  try {
+    backendLaunch = resolveBackendLaunch();
+  } catch (err) {
+    trace('[Backend resolve error]:', String(err?.stack || err?.message || err));
+    updateBackendStatus({
+      running: false,
+      source: 'error',
+      message: err.message || '未找到内置后端',
+    });
+    throw err;
+  }
+
   trace('[Backend launch]:', backendLaunch.label);
   pythonProcess = spawn(backendLaunch.command, backendLaunch.args, {
     stdio: ['pipe', 'pipe', 'pipe'],

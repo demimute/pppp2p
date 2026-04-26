@@ -33,7 +33,23 @@ _preprocess = None
 _model_ready = False
 MODEL_NAME = "ViT-B-32"
 PRETRAINED_TAG = "openai"
+def _bundled_model_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    exe_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else None
+    if exe_dir is not None:
+        candidates.extend([
+            exe_dir / 'model' / 'open_clip_model.safetensors',
+            exe_dir.parent / 'model' / 'open_clip_model.safetensors',
+            exe_dir / '_internal' / 'model' / 'open_clip_model.safetensors',
+        ])
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass:
+        candidates.append(Path(meipass) / 'model' / 'open_clip_model.safetensors')
+    return candidates
+
+
 LOCAL_MODEL_CANDIDATES = [
+    *_bundled_model_candidates(),
     Path.home() / '.cache' / 'huggingface' / 'hub' / 'models--timm--vit_base_patch32_clip_224.openai',
 ]
 
@@ -65,6 +81,14 @@ def _resolve_local_pretrained_path() -> Path:
     for repo_dir in LOCAL_MODEL_CANDIDATES:
         if not repo_dir.exists():
             continue
+
+        if repo_dir.is_file() and repo_dir.name in {
+            'open_clip_pytorch_model.bin',
+            'pytorch_model.bin',
+            'model.safetensors',
+            'open_clip_model.safetensors',
+        }:
+            return repo_dir
 
         snapshots_dir = repo_dir / 'snapshots'
         if snapshots_dir.exists():

@@ -42,6 +42,10 @@
       {
         "from": "backend/backend",
         "to": "backend/backend"
+      },
+      {
+        "from": "backend/model",
+        "to": "backend/model"
       }
     ],
     "mac": {

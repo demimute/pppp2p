@@ -34,6 +34,18 @@ jobs:
       - name: Install Python dependencies for bundled backend
         run: python -m pip install --upgrade pip && pip install -r backend/requirements-win.txt
 
+      - name: Download bundled CLIP weights
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from huggingface_hub import hf_hub_download
+          target = Path('backend/model')
+          target.mkdir(parents=True, exist_ok=True)
+          src = hf_hub_download(repo_id='timm/vit_base_patch32_clip_224.openai', filename='open_clip_model.safetensors')
+          Path(target / 'open_clip_model.safetensors').write_bytes(Path(src).read_bytes())
+          print(target / 'open_clip_model.safetensors')
+          PY
+
       - name: Build bundled Windows backend
         run: pyinstaller --clean --noconfirm --onedir --collect-data open_clip --name backend backend/app.py
 
@@ -48,7 +60,8 @@ jobs:
         run: |
           $paths = @(
             'dist/backend/backend.exe',
-            'backend/backend/backend.exe'
+            'backend/backend/backend.exe',
+            'backend/model/open_clip_model.safetensors'
           )
           foreach ($path in $paths) {
             if (-not (Test-Path $path)) {
@@ -66,6 +79,7 @@ jobs:
         run: |
           $paths = @(
             'dist-electron/win-unpacked/resources/backend/backend/backend.exe',
+            'dist-electron/win-unpacked/resources/backend/model/open_clip_model.safetensors',
             'dist-electron/win-unpacked/resources/app.asar'
           )
           foreach ($path in $paths) {

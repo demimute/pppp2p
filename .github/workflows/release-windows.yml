@@ -34,17 +34,20 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -r backend/requirements-win.txt
 
       - name: Build bundled Windows backend
-        run: pyinstaller --clean --noconfirm --onefile --name backend backend/app.py
+        run: pyinstaller --clean --noconfirm --onedir --name backend backend/app.py
 
       - name: Place bundled backend for Electron packaging
-        run: Copy-Item dist/backend.exe backend/backend.exe -Force
+        run: |
+          Remove-Item backend/backend -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path backend/backend | Out-Null
+          Copy-Item dist/backend/* backend/backend/ -Recurse -Force
         shell: pwsh
 
       - name: Verify bundled backend before Electron packaging
         run: |
           $paths = @(
-            'dist/backend.exe',
-            'backend/backend.exe'
+            'dist/backend/backend.exe',
+            'backend/backend/backend.exe'
           )
           foreach ($path in $paths) {
             if (-not (Test-Path $path)) {
@@ -52,6 +55,7 @@ jobs:
             }
             Write-Host "Found $path ($(Get-Item $path).Length bytes)"
           }
+          Get-ChildItem -Recurse backend/backend | Select-Object FullName, Length
         shell: pwsh
 
       - name: Build Windows portable and NSIS

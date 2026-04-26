@@ -233,9 +233,12 @@ function resolveBackendLaunch() {
   if (process.platform === 'win32' && app.isPackaged) {
     const candidates = [
       path.join(process.resourcesPath, 'backend', 'backend.exe'),
+      path.join(process.resourcesPath, 'backend', 'backend', 'backend.exe'),
       path.join(process.resourcesPath, 'backend.exe'),
       path.join(process.resourcesPath, 'app.asar.unpacked', 'backend', 'backend.exe'),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'backend', 'backend', 'backend.exe'),
       path.join(path.dirname(process.execPath), 'resources', 'backend', 'backend.exe'),
+      path.join(path.dirname(process.execPath), 'resources', 'backend', 'backend', 'backend.exe'),
     ];
 
     for (const candidate of candidates) {

@@ -65,7 +65,7 @@ jobs:
       - name: Verify packaged backend in win-unpacked resources
         run: |
           $paths = @(
-            'dist-electron/win-unpacked/resources/backend/backend.exe',
+            'dist-electron/win-unpacked/resources/backend/backend/backend.exe',
             'dist-electron/win-unpacked/resources/app.asar'
           )
           foreach ($path in $paths) {

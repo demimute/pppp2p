@@ -41,8 +41,37 @@ jobs:
         run: Copy-Item dist/backend.exe backend/backend.exe -Force
         shell: pwsh
 
+      - name: Verify bundled backend before Electron packaging
+        run: |
+          $paths = @(
+            'dist/backend.exe',
+            'backend/backend.exe'
+          )
+          foreach ($path in $paths) {
+            if (-not (Test-Path $path)) {
+              throw "Missing expected backend artifact: $path"
+            }
+            Write-Host "Found $path ($(Get-Item $path).Length bytes)"
+          }
+        shell: pwsh
+
       - name: Build Windows portable and NSIS
         run: npm run build:electron:win
+
+      - name: Verify packaged backend in win-unpacked resources
+        run: |
+          $paths = @(
+            'dist-electron/win-unpacked/resources/backend/backend.exe',
+            'dist-electron/win-unpacked/resources/app.asar'
+          )
+          foreach ($path in $paths) {
+            if (-not (Test-Path $path)) {
+              throw "Missing expected packaged file: $path"
+            }
+            Write-Host "Found $path ($(Get-Item $path).Length bytes)"
+          }
+          Get-ChildItem -Recurse dist-electron/win-unpacked/resources | Select-Object FullName, Length
+        shell: pwsh
 
       - name: Archive unpacked portable directory
         run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/PPPP2P-win-x64-unpacked.zip

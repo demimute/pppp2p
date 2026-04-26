@@ -22,11 +22,55 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Python dependencies for bundled backend
+        run: python -m pip install --upgrade pip && pip install -r backend/requirements-win.txt
+
+      - name: Build bundled Windows backend
+        run: pyinstaller --clean --noconfirm --onefile --name backend backend/app.py
+
+      - name: Place bundled backend for Electron packaging
+        run: Copy-Item dist/backend.exe backend/backend.exe -Force
+        shell: pwsh
+
+      - name: Verify bundled backend before Electron packaging
+        run: |
+          $paths = @(
+            'dist/backend.exe',
+            'backend/backend.exe'
+          )
+          foreach ($path in $paths) {
+            if (-not (Test-Path $path)) {
+              throw "Missing expected backend artifact: $path"
+            }
+            Write-Host "Found $path ($(Get-Item $path).Length bytes)"
+          }
+        shell: pwsh
+
       - name: Build Windows portable and NSIS
         run: npm run build:electron:win
+
+      - name: Verify packaged backend in win-unpacked resources
+        run: |
+          $paths = @(
+            'dist-electron/win-unpacked/resources/backend/backend.exe',
+            'dist-electron/win-unpacked/resources/app.asar'
+          )
+          foreach ($path in $paths) {
+            if (-not (Test-Path $path)) {
+              throw "Missing expected packaged file: $path"
+            }
+            Write-Host "Found $path ($(Get-Item $path).Length bytes)"
+          }
+          Get-ChildItem -Recurse dist-electron/win-unpacked/resources | Select-Object FullName, Length
+        shell: pwsh
 
       - name: Archive unpacked portable directory
         run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/PPPP2P-win-x64-unpacked.zip

@@ -59,6 +59,7 @@ _prewarm_futures: Dict[str, Any] = {}
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif'}
 PREFERENCES_PATH = Path.home() / '.dedup-studio' / 'preferences.json'
+BACKEND_PORT = int(os.environ.get('DEDUP_BACKEND_PORT', '18765'))
 
 
 def _load_preferences() -> Dict[str, Any]:
@@ -390,6 +391,11 @@ def _build_dual_edges_parallel(
                 member_meta[b][a] = meta
 
     return pair_edges, member_meta
+
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'ok': True, 'port': BACKEND_PORT})
 
 
 @app.route('/api/scan', methods=['POST'])
@@ -951,6 +957,5 @@ def api_clear_cache():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('DEDUP_BACKEND_PORT', '5000'))
     debug_enabled = os.environ.get('DEDUP_BACKEND_DEBUG', '0') == '1'
-    app.run(host='127.0.0.1', port=port, debug=debug_enabled, use_reloader=debug_enabled)
+    app.run(host='127.0.0.1', port=BACKEND_PORT, debug=debug_enabled, use_reloader=debug_enabled)

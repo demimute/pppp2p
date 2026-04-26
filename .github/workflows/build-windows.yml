@@ -77,6 +77,47 @@ jobs:
           Get-ChildItem -Recurse dist-electron/win-unpacked/resources | Select-Object FullName, Length
         shell: pwsh
 
+      - name: Smoke test packaged backend on Windows runner
+        run: |
+          $exe = Resolve-Path 'dist-electron/win-unpacked/resources/backend/backend/backend.exe'
+          $stdout = Join-Path $env:RUNNER_TEMP 'backend-stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'backend-stderr.log'
+          $env:DEDUP_BACKEND_PORT = '18765'
+          $proc = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:18765/api/health' -UseBasicParsing -TimeoutSec 2
+                if ($resp.StatusCode -eq 200) {
+                  $ready = $true
+                  Write-Host $resp.Content
+                  break
+                }
+              } catch {
+              }
+              if ($proc.HasExited) {
+                break
+              }
+            }
+            if (-not $ready) {
+              if (-not $proc.HasExited) {
+                Stop-Process -Id $proc.Id -Force
+              }
+              Write-Host '--- backend stdout ---'
+              if (Test-Path $stdout) { Get-Content $stdout }
+              Write-Host '--- backend stderr ---'
+              if (Test-Path $stderr) { Get-Content $stderr }
+              throw 'Packaged backend failed smoke test on Windows runner'
+            }
+          } finally {
+            if (-not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }
+        shell: pwsh
+
       - name: Archive unpacked portable directory
         run: Compress-Archive -Path dist-electron/win-unpacked/* -DestinationPath dist-electron/PPPP2P-win-x64-unpacked.zip
         shell: pwsh
